@@ -1,14 +1,9 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def format_num(num):
-    """قالب‌بندی اعداد با کاما"""
-    try:
-        return f"{int(num):,}"
-    except:
-        return "0"
+    return f"{num:,}"
 
 def main_menu(user_id, db):
-    """منوی اصلی"""
     account_count = db.get_account_count(user_id)
     is_admin = db.is_admin(user_id)
     
@@ -36,15 +31,12 @@ def main_menu(user_id, db):
     return InlineKeyboardMarkup(keyboard)
 
 def back_button():
-    """دکمه بازگشت"""
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]])
 
 def cancel_button():
-    """دکمه لغو"""
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ لغو", callback_data="cancel")]])
 
 def accounts_list_menu(accounts):
-    """منوی لیست اکانت‌ها"""
     keyboard = []
     
     for acc in accounts:
@@ -60,7 +52,6 @@ def accounts_list_menu(accounts):
     return InlineKeyboardMarkup(keyboard)
 
 def delete_accounts_menu(accounts):
-    """منوی حذف اکانت"""
     keyboard = []
     
     for acc in accounts:
@@ -71,7 +62,6 @@ def delete_accounts_menu(accounts):
     return InlineKeyboardMarkup(keyboard)
 
 def update_options_menu(account_id):
-    """منوی تغییر اکانت"""
     keyboard = [
         [InlineKeyboardButton("⚔️ تغییر اتک", callback_data=f"up_attack_{account_id}")],
         [InlineKeyboardButton("🛡️ تغییر دفاع", callback_data=f"up_defense_{account_id}")],
@@ -81,7 +71,6 @@ def update_options_menu(account_id):
     return InlineKeyboardMarkup(keyboard)
 
 def admin_panel_menu():
-    """منوی پنل ادمین"""
     keyboard = [
         [InlineKeyboardButton("👥 مدیریت کاربران", callback_data="admin_users")],
         [InlineKeyboardButton("📊 آمار پیشرفته", callback_data="admin_stats")],
@@ -90,11 +79,10 @@ def admin_panel_menu():
     return InlineKeyboardMarkup(keyboard)
 
 def admin_users_menu(users, page=0):
-    """منوی مدیریت کاربران"""
     keyboard = []
     
-    start = page * 5
-    end = start + 5
+    start = page * 10
+    end = start + 10
     page_users = users[start:end]
     
     for user in page_users:
@@ -119,23 +107,7 @@ def admin_users_menu(users, page=0):
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")])
     return InlineKeyboardMarkup(keyboard)
 
-def admin_user_accounts_menu(user_accounts, user_id):
-    """منوی مدیریت اکانت‌های کاربر"""
-    keyboard = []
-    
-    for acc in user_accounts:
-        btn_text = f"🎮 {acc['game_name']} (⚔{format_num(acc['attack'])} 🛡{format_num(acc['defense'])})"
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"admin_delete_single_{acc['id']}")])
-    
-    keyboard.append([
-        InlineKeyboardButton("🗑️ حذف همه", callback_data=f"admin_delete_all_{user_id}"),
-        InlineKeyboardButton("🔙 بازگشت", callback_data="admin_users")
-    ])
-    
-    return InlineKeyboardMarkup(keyboard)
-
 def rankings_menu():
-    """منوی رتبه‌بندی"""
     keyboard = [
         [InlineKeyboardButton("🥇 ۱۰ نفر اول", callback_data="top10")],
         [InlineKeyboardButton("🥈 ۲۰ نفر اول", callback_data="top20")],

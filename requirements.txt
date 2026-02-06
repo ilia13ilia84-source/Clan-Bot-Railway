@@ -1,2 +1,2 @@
 python-telegram-bot[job-queue]==20.7
-pg8000==1.30.4
+psycopg2-binary==2.9.9

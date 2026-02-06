@@ -1,28 +1,17 @@
 [phases.setup]
 nixPkgs = [
-    "python313",
-    "python313Packages.pip",
+    "python311",
     "postgresql",
-    "postgresql.lib",
-    "libpqxx",
     "gcc",
     "libffi",
-    "openssl",
-    "zlib"
+    "openssl"
 ]
 
 [phases.install]
-cmds = [
-    "python -m pip install --upgrade pip",
-    "pip install --no-cache-dir -r requirements.txt"
-]
+cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "python bot.py"
-
-[variables]
-TOKEN.default = "8374994781:AAEyHplC_nJlyIeBCt3RJGHBfBOoT2r4Agw"
-ADMIN_ID.default = "5528629749"
 
 [environments]
 TOKEN.required = true

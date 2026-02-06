@@ -1,0 +1,28 @@
+[phases.setup]
+nixPkgs = [
+    "python311",
+    "python311Packages.pip",
+    "postgresql",
+    "gcc",
+    "libffi",
+    "openssl",
+    "zlib"
+]
+
+[phases.install]
+cmds = [
+    "python -m pip install --upgrade pip",
+    "pip install --no-cache-dir -r requirements.txt"
+]
+
+[start]
+cmd = "python bot.py"
+
+[variables]
+TOKEN.default = "8374994781:AAEyHplC_nJlyIeBCt3RJGHBfBOoT2r4Agw"
+ADMIN_ID.default = "5528629749"
+
+[environments]
+TOKEN.required = true
+ADMIN_ID.required = true
+DATABASE_URL.required = true

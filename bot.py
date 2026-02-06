@@ -32,7 +32,9 @@ from database import db
 from keyboards import (
     main_menu, back_button, cancel_button,
     accounts_list_menu, delete_accounts_menu, update_options_menu,
-    admin_panel_menu, admin_users_menu, rankings_menu, format_num
+    admin_panel_menu, admin_users_menu, rankings_menu, format_num,
+    admin_user_detail_menu, admin_user_accounts_menu, admin_account_detail_menu,
+    confirm_delete_menu, confirm_toggle_admin_menu
 )
 
 GET_NAME, GET_ATTACK, GET_DEFENSE = range(3)
@@ -392,56 +394,450 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت کاربران"""
+    """نمایش لیست کاربران برای ادمین"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
+    
     if not db.is_admin(user_id):
+        await query.edit_message_text(
+            "❌ دسترسی غیرمجاز!",
+            reply_markup=main_menu(user_id, db)
+        )
         return
     
+    # دریافت همه کاربران
     users = db.get_all_users()
     
     if not users:
         await query.edit_message_text(
             "📭 هیچ کاربری ثبت نشده است.",
-            reply_markup=back_button()
+            reply_markup=admin_panel_menu()
         )
         return
     
+    # بررسی اگر صفحه‌بندی است
     page = 0
-    if query.data.startswith("admin_page_"):
-        page = int(query.data.split("_")[2])
+    if query.data.startswith("admin_users_page_"):
+        page = int(query.data.split("_")[3])
     
-    text = f"👥 مدیریت کاربران\n\nتعداد: {len(users)}\nصفحه {page + 1}"
-    await query.edit_message_text(text, reply_markup=admin_users_menu(users, page))
+    text = f"""
+👥 مدیریت کاربران
 
-async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """آمار ادمین"""
+📊 تعداد کل کاربران: {len(users)}
+📄 صفحه {page + 1} از {(len(users) + 4) // 5}
+
+👑 = ادمین
+👇 کاربر مورد نظر را انتخاب کنید:
+"""
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_users_menu(users, page)
+    )
+
+async def admin_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش جزئیات یک کاربر"""
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
+    
     if not db.is_admin(user_id):
+        return
+    
+    target_user_id = int(query.data.split("_")[3])
+    
+    # دریافت اطلاعات کاربر
+    users = db.get_all_users()
+    target_user = None
+    
+    for user in users:
+        if user['user_id'] == target_user_id:
+            target_user = user
+            break
+    
+    if not target_user:
+        await query.edit_message_text(
+            "❌ کاربر پیدا نشد!",
+            reply_markup=admin_users_menu(users)
+        )
+        return
+    
+    username = f"@{target_user['username']}" if target_user['username'] else target_user['first_name']
+    
+    text = f"""
+👤 جزئیات کاربر
+
+🆔 آیدی: {target_user_id}
+👤 نام: {username}
+👑 وضعیت: {"ادمین ✅" if target_user['is_admin'] else "کاربر عادی"}
+🎮 تعداد اکانت‌ها: {target_user['account_count']}
+
+👇 عملیات مورد نظر را انتخاب کنید:
+"""
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_user_detail_menu(target_user_id)
+    )
+
+async def admin_view_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مشاهده اکانت‌های کاربر توسط ادمین"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    target_user_id = int(query.data.split("_")[3])
+    
+    # دریافت اکانت‌های کاربر
+    accounts = db.get_user_accounts(target_user_id)
+    
+    if not accounts:
+        await query.edit_message_text(
+            f"📭 کاربر {target_user_id} هیچ اکانت فعالی ندارد.",
+            reply_markup=admin_user_detail_menu(target_user_id)
+        )
+        return
+    
+    total_attack = sum(acc['attack'] for acc in accounts)
+    total_defense = sum(acc['defense'] for acc in accounts)
+    
+    text = f"""
+🎮 اکانت‌های کاربر
+
+👤 آیدی کاربر: {target_user_id}
+📊 تعداد اکانت‌ها: {len(accounts)}
+⚔️ مجموع اتک: {format_num(total_attack)}
+🛡️ مجموع دفاع: {format_num(total_defense)}
+
+👇 برای مدیریت انتخاب کنید:
+"""
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_user_accounts_menu(accounts, target_user_id)
+    )
+
+async def admin_account_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """جزئیات یک اکانت خاص"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    account_id = int(query.data.split("_")[3])
+    
+    # دریافت اطلاعات اکانت
+    account = db.get_account(account_id)
+    
+    if not account:
+        await query.edit_message_text(
+            "❌ اکانت پیدا نشد!",
+            reply_markup=back_button()
+        )
+        return
+    
+    text = f"""
+🎮 جزئیات اکانت
+
+🆔 آیدی اکانت: {account_id}
+👤 آیدی کاربر: {account['user_id']}
+📛 نام: {account['game_name']}
+⚔️ اتک: {format_num(account['attack'])}
+🛡️ دفاع: {format_num(account['defense'])}
+📊 مجموع: {format_num(account['attack'] + account['defense'])}
+
+👇 عملیات مورد نظر را انتخاب کنید:
+"""
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_account_detail_menu(account_id)
+    )
+
+async def admin_delete_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حذف یک اکانت توسط ادمین"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    account_id = int(query.data.split("_")[3])
+    
+    account = db.get_account(account_id)
+    
+    if not account:
+        await query.edit_message_text(
+            "❌ اکانت پیدا نشد!",
+            reply_markup=back_button()
+        )
+        return
+    
+    text = f"""
+⚠️ تایید حذف اکانت
+
+🎮 نام اکانت: {account['game_name']}
+👤 آیدی کاربر: {account['user_id']}
+⚔️ اتک: {format_num(account['attack'])}
+🛡️ دفاع: {format_num(account['defense'])}
+
+❌ این عمل غیرقابل بازگشت است!
+
+آیا مطمئن هستید؟
+"""
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=confirm_delete_menu(account_id, "account")
+    )
+
+async def confirm_delete_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تایید نهایی حذف اکانت"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    account_id = int(query.data.split("_")[3])
+    
+    account = db.get_account(account_id)
+    
+    if db.delete_account(account_id):
+        text = f"""
+✅ اکانت حذف شد!
+
+🎮 نام: {account['game_name']}
+👤 آیدی کاربر: {account['user_id']}
+"""
+    else:
+        text = "❌ خطا در حذف اکانت!"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_panel_menu()
+    )
+
+async def admin_delete_all_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حذف همه اکانت‌های یک کاربر"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    target_user_id = int(query.data.split("_")[4])
+    
+    # دریافت اطلاعات کاربر
+    users = db.get_all_users()
+    target_user = None
+    
+    for user in users:
+        if user['user_id'] == target_user_id:
+            target_user = user
+            break
+    
+    if not target_user:
+        await query.edit_message_text(
+            "❌ کاربر پیدا نشد!",
+            reply_markup=admin_users_menu(users)
+        )
+        return
+    
+    username = f"@{target_user['username']}" if target_user['username'] else target_user['first_name']
+    
+    text = f"""
+⚠️ تایید حذف همه اکانت‌ها
+
+👤 کاربر: {username}
+🆔 آیدی: {target_user_id}
+🎮 تعداد اکانت‌ها: {target_user['account_count']}
+
+❌ تمام اکانت‌های این کاربر حذف خواهند شد!
+این عمل غیرقابل بازگشت است!
+
+آیا مطمئن هستید؟
+"""
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=confirm_delete_menu(target_user_id, "user_accounts")
+    )
+
+async def confirm_delete_all_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تایید نهایی حذف همه اکانت‌ها"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    target_user_id = int(query.data.split("_")[3])
+    
+    # دریافت اکانت‌های کاربر
+    accounts = db.get_user_accounts(target_user_id)
+    deleted_count = 0
+    
+    for acc in accounts:
+        if db.delete_account(acc['id']):
+            deleted_count += 1
+    
+    text = f"""
+✅ {deleted_count} اکانت حذف شد!
+
+👤 آیدی کاربر: {target_user_id}
+🗑️ تعداد اکانت‌های حذف شده: {deleted_count}
+"""
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_panel_menu()
+    )
+
+async def admin_toggle_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تغییر وضعیت ادمین کاربر"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    target_user_id = int(query.data.split("_")[3])
+    
+    # بررسی وضعیت فعلی کاربر
+    current_status = db.is_admin(target_user_id)
+    
+    text = f"""
+⚠️ تغییر وضعیت ادمین
+
+👤 آیدی کاربر: {target_user_id}
+👑 وضعیت فعلی: {"ادمین ✅" if current_status else "کاربر عادی"}
+🔄 وضعیت جدید: {"کاربر عادی" if current_status else "ادمین"}
+
+آیا مطمئن هستید؟
+"""
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=confirm_toggle_admin_menu(target_user_id)
+    )
+
+async def confirm_toggle_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تایید تغییر وضعیت ادمین"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    target_user_id = int(query.data.split("_")[3])
+    
+    # تغییر وضعیت ادمین
+    current_status = db.is_admin(target_user_id)
+    new_status = not current_status
+    
+    if db.set_admin(target_user_id, new_status):
+        text = f"""
+✅ وضعیت ادمین تغییر یافت!
+
+👤 آیدی کاربر: {target_user_id}
+👑 وضعیت جدید: {"ادمین ✅" if new_status else "کاربر عادی"}
+"""
+    else:
+        text = "❌ خطا در تغییر وضعیت ادمین!"
+    
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_panel_menu()
+    )
+
+async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """آمار پیشرفته برای ادمین"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        await query.edit_message_text(
+            "❌ دسترسی غیرمجاز!",
+            reply_markup=main_menu(user_id, db)
+        )
         return
     
     stats = db.get_clan_stats()
     users = db.get_all_users()
     
-    users_with_acc = sum(1 for u in users if u['account_count'] > 0)
+    # محاسبات پیشرفته
+    total_users = len(users)
+    users_with_accounts = sum(1 for u in users if u['account_count'] > 0)
+    users_without_accounts = total_users - users_with_accounts
     
-    text = f"""📈 آمار پیشرفته
+    admins_count = sum(1 for u in users if u['is_admin'])
+    regular_users = total_users - admins_count
+    
+    if stats['total_accounts'] > 0:
+        avg_attack = stats['total_attack'] // stats['total_accounts']
+        avg_defense = stats['total_defense'] // stats['total_accounts']
+        avg_total = avg_attack + avg_defense
+    else:
+        avg_attack = avg_defense = avg_total = 0
+    
+    text = f"""
+📈 آمار پیشرفته کلن
 
-👥 کاربران:
-• کل: {len(users)}
-• دارای اکانت: {users_with_acc}
-• بدون اکانت: {len(users) - users_with_acc}
+👥 **کاربران:**
+• کل کاربران: {total_users}
+• دارای اکانت: {users_with_accounts}
+• بدون اکانت: {users_without_accounts}
+• ادمین‌ها: {admins_count}
+• کاربران عادی: {regular_users}
 
-⚔️ نیروها:
+🎮 **اکانت‌ها:**
+• کل اکانت‌ها: {stats['total_accounts']}
+• کاربران فعال: {stats['total_users']}
+
+⚔️ **نیروها:**
 • کل اتک: {format_num(stats['total_attack'])}
-• کل دفاع: {format_num(stats['total_defense'])}"""
+• کل دفاع: {format_num(stats['total_defense'])}
+• کل نیرو: {format_num(stats['total_attack'] + stats['total_defense'])}
+
+📊 **میانگین‌ها:**
+• میانگین اتک: {format_num(avg_attack)}
+• میانگین دفاع: {format_num(avg_defense)}
+• میانگین کل: {format_num(avg_total)}
+
+💾 **دیتابیس:**
+• PostgreSQL Railway
+• 24/7 آنلاین
+"""
     
-    await query.edit_message_text(text, reply_markup=back_button())
+    await query.edit_message_text(
+        text,
+        reply_markup=admin_panel_menu()
+    )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """لغو"""
@@ -515,11 +911,22 @@ def main():
     app.add_handler(CallbackQueryHandler(top_rankings, pattern="^top10$|^top20$"))
     app.add_handler(CallbackQueryHandler(update_menu, pattern="^update_menu$"))
     app.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel$"))
-    app.add_handler(CallbackQueryHandler(admin_users, pattern="^admin_users$"))
     app.add_handler(CallbackQueryHandler(admin_stats, pattern="^admin_stats$"))
-    app.add_handler(CallbackQueryHandler(admin_users, pattern=r"^admin_page_\d+$"))
-    app.add_handler(CallbackQueryHandler(cancel, pattern="^cancel$"))
     
+    # هندلرهای مدیریت ادمین
+    app.add_handler(CallbackQueryHandler(admin_users, pattern="^admin_users$"))
+    app.add_handler(CallbackQueryHandler(admin_users, pattern=r"^admin_users_page_\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_user_detail, pattern=r"^admin_user_detail_\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_view_accounts, pattern=r"^admin_view_accounts_\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_account_detail, pattern=r"^admin_account_detail_\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_delete_account, pattern=r"^admin_delete_account_\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_delete_all_accounts, pattern=r"^admin_delete_all_accounts_\d+$"))
+    app.add_handler(CallbackQueryHandler(admin_toggle_admin, pattern=r"^admin_toggle_admin_\d+$"))
+    app.add_handler(CallbackQueryHandler(confirm_delete_account, pattern=r"^confirm_delete_account_\d+$"))
+    app.add_handler(CallbackQueryHandler(confirm_delete_all_accounts, pattern=r"^confirm_delete_user_accounts_\d+$"))
+    app.add_handler(CallbackQueryHandler(confirm_toggle_admin, pattern=r"^confirm_toggle_admin_\d+$"))
+    
+    app.add_handler(CallbackQueryHandler(cancel, pattern="^cancel$"))
     app.add_handler(CommandHandler("cancel", cancel_text))
     
     logger.info("🤖 Bot is starting...")

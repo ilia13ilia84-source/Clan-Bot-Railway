@@ -1,19 +1,8 @@
 [phases.setup]
-nixPkgs = [
-    "python311",
-    "python311Packages.pip",
-    "postgresql",
-    "gcc",
-    "libffi",
-    "openssl",
-    "zlib"
-]
+nixPkgs = ["python311", "postgresql"]
 
 [phases.install]
-cmds = [
-    "python -m pip install --upgrade pip",
-    "pip install --no-cache-dir -r requirements.txt"
-]
+cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "python bot.py"

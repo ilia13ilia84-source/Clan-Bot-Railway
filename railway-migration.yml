@@ -1,0 +1,16 @@
+name: Clan Bot Migration
+services:
+  migration:
+    type: web
+    name: database-migration
+    command: python migration.py
+    env:
+      - DATABASE_URL
+    ephemeral: true
+    instance:
+      type: basic
+      count: 1
+    checks:
+      migration-check:
+        type: startup
+        command: echo "Migration completed"

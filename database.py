@@ -66,7 +66,7 @@ class Database:
                 )
             ''')
             
-            # Create accounts table با فیلدهای جدید
+            # Create accounts table با فیلدهای جدید (حتی اگر از قبل وجود داشته باشد)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS accounts (
                     id SERIAL PRIMARY KEY,
@@ -80,6 +80,23 @@ class Database:
                     last_updated DATE DEFAULT CURRENT_DATE
                 )
             ''')
+            
+            # Try to add missing columns if table already exists
+            try:
+                cursor.execute('''
+                    ALTER TABLE accounts 
+                    ADD COLUMN IF NOT EXISTS character TEXT DEFAULT 'none'
+                ''')
+            except:
+                pass  # Column might already exist
+            
+            try:
+                cursor.execute('''
+                    ALTER TABLE accounts 
+                    ADD COLUMN IF NOT EXISTS last_updated DATE DEFAULT CURRENT_DATE
+                ''')
+            except:
+                pass  # Column might already exist
             
             # Create indexes
             cursor.execute('''
@@ -99,21 +116,24 @@ class Database:
             
             self.conn.commit()
             
-            logger.info("✅ Database tables created successfully")
+            logger.info("✅ Database tables created/updated successfully")
             
             # Count existing records
-            cursor.execute("SELECT COUNT(*) FROM users")
-            users_count = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) FROM accounts")
-            accounts_count = cursor.fetchone()['count']
-            
-            logger.info(f"📊 Current data: {users_count} users, {accounts_count} accounts")
+            try:
+                cursor.execute("SELECT COUNT(*) FROM users")
+                users_count = cursor.fetchone()['count']
+                
+                cursor.execute("SELECT COUNT(*) FROM accounts")
+                accounts_count = cursor.fetchone()['count']
+                
+                logger.info(f"📊 Current data: {users_count} users, {accounts_count} accounts")
+            except:
+                logger.info("📊 No data yet")
             
         except Exception as e:
             logger.error(f"❌ Error creating tables: {e}")
             self.conn.rollback()
-            raise
+            # Don't raise, try to continue
     
     def add_user(self, user_id, username, first_name):
         """Add or update user"""

@@ -66,7 +66,7 @@ class Database:
                 )
             ''')
             
-            # Create accounts table
+            # Create accounts table با فیلدهای جدید
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS accounts (
                     id SERIAL PRIMARY KEY,
@@ -74,8 +74,10 @@ class Database:
                     game_name TEXT NOT NULL,
                     attack INTEGER DEFAULT 0,
                     defense INTEGER DEFAULT 0,
+                    character TEXT DEFAULT 'none',
                     is_active BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_updated DATE DEFAULT CURRENT_DATE
                 )
             ''')
             
@@ -88,6 +90,11 @@ class Database:
             cursor.execute('''
                 CREATE INDEX IF NOT EXISTS idx_accounts_active 
                 ON accounts(is_active)
+            ''')
+            
+            cursor.execute('''
+                CREATE INDEX IF NOT EXISTS idx_accounts_last_updated 
+                ON accounts(last_updated)
             ''')
             
             self.conn.commit()
@@ -173,7 +180,7 @@ class Database:
         cursor = self.conn.cursor()
         try:
             cursor.execute('''
-                SELECT id, game_name, attack, defense
+                SELECT id, game_name, attack, defense, character
                 FROM accounts 
                 WHERE user_id = %s AND is_active = TRUE
                 ORDER BY created_at DESC
@@ -200,7 +207,7 @@ class Database:
             logger.error(f"Error counting accounts for {user_id}: {e}")
             return 0
     
-    def update_account(self, account_id, attack=None, defense=None, game_name=None):
+    def update_account(self, account_id, attack=None, defense=None, game_name=None, character=None):
         """Update account"""
         cursor = self.conn.cursor()
         try:
@@ -218,6 +225,13 @@ class Database:
             if game_name is not None:
                 updates.append("game_name = %s")
                 params.append(game_name)
+            
+            if character is not None:
+                updates.append("character = %s")
+                params.append(character)
+            
+            # اضافه کردن تاریخ بروزرسانی
+            updates.append("last_updated = CURRENT_DATE")
             
             if not updates:
                 return False
@@ -293,6 +307,7 @@ class Database:
                     a.game_name,
                     a.attack,
                     a.defense,
+                    a.character,
                     u.username,
                     u.first_name,
                     u.user_id
@@ -308,11 +323,23 @@ class Database:
             
             for i, row in enumerate(rows, 1):
                 user_display = f"@{row['username']}" if row['username'] else row['first_name']
+                
+                # تعیین آیکون کاراکتر
+                character_icon = ""
+                if row['character'] == 'cat':
+                    character_icon = "🐱"
+                elif row['character'] == 'dog':
+                    character_icon = "🐶"
+                elif row['character'] == 'frog':
+                    character_icon = "🐸"
+                
                 rankings.append({
                     'rank': i,
                     'game_name': row['game_name'],
                     'attack': row['attack'],
                     'defense': row['defense'],
+                    'character': row['character'],
+                    'character_icon': character_icon,
                     'user_display': user_display,
                     'user_id': row['user_id']
                 })
@@ -320,6 +347,59 @@ class Database:
             return rankings
         except Exception as e:
             logger.error(f"Error getting rankings: {e}")
+            return []
+    
+    def get_full_rankings(self):
+        """Get all rankings (برای همه)"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT 
+                    a.game_name,
+                    a.attack,
+                    a.defense,
+                    a.character,
+                    u.username,
+                    u.first_name,
+                    u.user_id,
+                    (a.attack + a.defense) as total_power,
+                    ROW_NUMBER() OVER (ORDER BY (a.attack + a.defense) DESC) as rank
+                FROM accounts a
+                JOIN users u ON a.user_id = u.user_id
+                WHERE a.is_active = TRUE
+                ORDER BY total_power DESC
+            ''')
+            
+            rankings = []
+            rows = cursor.fetchall()
+            
+            for row in rows:
+                user_display = f"@{row['username']}" if row['username'] else row['first_name']
+                
+                # تعیین آیکون کاراکتر
+                character_icon = ""
+                if row['character'] == 'cat':
+                    character_icon = "🐱"
+                elif row['character'] == 'dog':
+                    character_icon = "🐶"
+                elif row['character'] == 'frog':
+                    character_icon = "🐸"
+                
+                rankings.append({
+                    'rank': row['rank'],
+                    'game_name': row['game_name'],
+                    'attack': row['attack'],
+                    'defense': row['defense'],
+                    'character': row['character'],
+                    'character_icon': character_icon,
+                    'total_power': row['total_power'],
+                    'user_display': user_display,
+                    'user_id': row['user_id']
+                })
+            
+            return rankings
+        except Exception as e:
+            logger.error(f"Error getting full rankings: {e}")
             return []
     
     def get_all_users(self):
@@ -342,6 +422,51 @@ class Database:
             return cursor.fetchall()
         except Exception as e:
             logger.error(f"Error getting all users: {e}")
+            return []
+    
+    def get_update_history(self, days=30):
+        """Get accounts update history"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT 
+                    last_updated as date,
+                    COUNT(*) as update_count
+                FROM accounts 
+                WHERE last_updated >= CURRENT_DATE - INTERVAL '%s days'
+                    AND is_active = TRUE
+                GROUP BY last_updated
+                ORDER BY last_updated DESC
+            ''', (days,))
+            
+            return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"Error getting update history: {e}")
+            return []
+    
+    def get_accounts_updated_on_date(self, date):
+        """Get accounts updated on specific date"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('''
+                SELECT 
+                    a.game_name,
+                    a.attack,
+                    a.defense,
+                    a.character,
+                    u.username,
+                    u.first_name,
+                    u.user_id
+                FROM accounts a
+                JOIN users u ON a.user_id = u.user_id
+                WHERE a.last_updated = %s 
+                    AND a.is_active = TRUE
+                ORDER BY a.created_at DESC
+            ''', (date,))
+        
+            return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"Error getting accounts for date {date}: {e}")
             return []
 
 # Create database instance

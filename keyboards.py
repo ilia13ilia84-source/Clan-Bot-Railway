@@ -48,7 +48,16 @@ def accounts_list_menu(accounts):
     keyboard = []
     
     for acc in accounts:
-        btn_text = f"🎮 {acc['game_name']} (⚔{format_num(acc['attack'])} 🛡{format_num(acc['defense'])})"
+        # تعیین آیکون کاراکتر
+        character_icon = ""
+        if acc['character'] == 'cat':
+            character_icon = "🐱"
+        elif acc['character'] == 'dog':
+            character_icon = "🐶"
+        elif acc['character'] == 'frog':
+            character_icon = "🐸"
+        
+        btn_text = f"🎮 {acc['game_name']} {character_icon} (⚔{format_num(acc['attack'])} 🛡{format_num(acc['defense'])})"
         keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"view_{acc['id']}")])
     
     keyboard.append([
@@ -70,12 +79,23 @@ def delete_accounts_menu(accounts):
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="my_accounts")])
     return InlineKeyboardMarkup(keyboard)
 
+def character_menu(account_id):
+    """منوی انتخاب کاراکتر"""
+    keyboard = [
+        [InlineKeyboardButton("🐱 گربه", callback_data=f"char_cat_{account_id}")],
+        [InlineKeyboardButton("🐶 سگ", callback_data=f"char_dog_{account_id}")],
+        [InlineKeyboardButton("🐸 قورباغه", callback_data=f"char_frog_{account_id}")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"view_{account_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 def update_options_menu(account_id):
     """منوی تغییر اکانت"""
     keyboard = [
         [InlineKeyboardButton("⚔️ تغییر اتک", callback_data=f"up_attack_{account_id}")],
         [InlineKeyboardButton("🛡️ تغییر دفاع", callback_data=f"up_defense_{account_id}")],
         [InlineKeyboardButton("📝 تغییر نام", callback_data=f"up_name_{account_id}")],
+        [InlineKeyboardButton("🎭 تغییر کاراکتر", callback_data=f"change_char_{account_id}")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="my_accounts")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -85,6 +105,7 @@ def admin_panel_menu():
     keyboard = [
         [InlineKeyboardButton("👥 مدیریت کاربران", callback_data="admin_users")],
         [InlineKeyboardButton("📊 آمار پیشرفته", callback_data="admin_stats")],
+        [InlineKeyboardButton("📅 تاریخ بروزرسانی‌ها", callback_data="admin_update_history")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -138,7 +159,16 @@ def admin_user_accounts_menu(accounts, user_id):
     keyboard = []
     
     for acc in accounts:
-        btn_text = f"🎮 {acc['game_name']} (⚔{format_num(acc['attack'])} 🛡{format_num(acc['defense'])})"
+        # تعیین آیکون کاراکتر
+        character_icon = ""
+        if acc['character'] == 'cat':
+            character_icon = "🐱"
+        elif acc['character'] == 'dog':
+            character_icon = "🐶"
+        elif acc['character'] == 'frog':
+            character_icon = "🐸"
+        
+        btn_text = f"🎮 {acc['game_name']} {character_icon}"
         keyboard.append([
             InlineKeyboardButton(btn_text, callback_data=f"admin_account_detail_{acc['id']}"),
             InlineKeyboardButton("🗑️", callback_data=f"admin_delete_account_{acc['id']}")
@@ -157,6 +187,7 @@ def admin_account_detail_menu(account_id):
         [InlineKeyboardButton("⚔️ تغییر اتک", callback_data=f"admin_update_attack_{account_id}")],
         [InlineKeyboardButton("🛡️ تغییر دفاع", callback_data=f"admin_update_defense_{account_id}")],
         [InlineKeyboardButton("📝 تغییر نام", callback_data=f"admin_update_name_{account_id}")],
+        [InlineKeyboardButton("🎭 تغییر کاراکتر", callback_data=f"admin_update_character_{account_id}")],
         [InlineKeyboardButton("🗑️ حذف این اکانت", callback_data=f"admin_delete_single_{account_id}")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_users")]
     ]
@@ -187,6 +218,28 @@ def rankings_menu():
     keyboard = [
         [InlineKeyboardButton("🥇 ۱۰ نفر اول", callback_data="top10")],
         [InlineKeyboardButton("🥈 ۲۰ نفر اول", callback_data="top20")],
+        [InlineKeyboardButton("📊 رتبه‌بندی کامل", callback_data="full_rankings")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def admin_update_history_menu():
+    """منوی تاریخ بروزرسانی برای ادمین"""
+    keyboard = [
+        [InlineKeyboardButton("📅 امروز", callback_data="admin_updates_today")],
+        [InlineKeyboardButton("📅 دیروز", callback_data="admin_updates_yesterday")],
+        [InlineKeyboardButton("📅 ۷ روز گذشته", callback_data="admin_updates_week")],
+        [InlineKeyboardButton("📅 ۳۰ روز گذشته", callback_data="admin_updates_month")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def character_selection_menu():
+    """منوی انتخاب کاراکتر برای ثبت اکانت جدید"""
+    keyboard = [
+        [InlineKeyboardButton("🐱 گربه", callback_data="char_cat_new")],
+        [InlineKeyboardButton("🐶 سگ", callback_data="char_dog_new")],
+        [InlineKeyboardButton("🐸 قورباغه", callback_data="char_frog_new")],
+        [InlineKeyboardButton("❌ لغو", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)

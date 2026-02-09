@@ -34,11 +34,12 @@ from keyboards import (
     accounts_list_menu, delete_accounts_menu, update_options_menu,
     admin_panel_menu, admin_users_menu, rankings_menu, format_num,
     admin_user_detail_menu, admin_user_accounts_menu, admin_account_detail_menu,
-    confirm_delete_menu, confirm_toggle_admin_menu
+    confirm_delete_menu, confirm_toggle_admin_menu,
+    character_menu, admin_update_history_menu, character_selection_menu
 )
 
-GET_NAME, GET_ATTACK, GET_DEFENSE = range(3)
-UPDATE_VALUE = 3
+GET_NAME, GET_ATTACK, GET_DEFENSE, GET_CHARACTER = range(4)
+UPDATE_VALUE = 4
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """شروع ربات"""
@@ -91,9 +92,15 @@ async def my_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_attack = sum(acc['attack'] for acc in accounts)
     total_defense = sum(acc['defense'] for acc in accounts)
     
+    # شمارش کاراکترها
+    cats = sum(1 for acc in accounts if acc['character'] == 'cat')
+    dogs = sum(1 for acc in accounts if acc['character'] == 'dog')
+    frogs = sum(1 for acc in accounts if acc['character'] == 'frog')
+    
     text = f"""📋 اکانت‌های شما
 
 تعداد: {len(accounts)}/10
+🐱 گربه: {cats} | 🐶 سگ: {dogs} | 🐸 قورباغه: {frogs}
 مجموع اتک: {format_num(total_attack)}
 مجموع دفاع: {format_num(total_defense)}
 
@@ -113,11 +120,24 @@ async def view_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ اکانت پیدا نشد!", reply_markup=back_button())
         return
     
+    # تعیین کاراکتر
+    character_text = ""
+    if account['character'] == 'cat':
+        character_text = "🐱 گربه"
+    elif account['character'] == 'dog':
+        character_text = "🐶 سگ"
+    elif account['character'] == 'frog':
+        character_text = "🐸 قورباغه"
+    else:
+        character_text = "❌ بدون کاراکتر"
+    
     text = f"""🎮 مدیریت اکانت
 
 نام: {account['game_name']}
 اتک: {format_num(account['attack'])}
 دفاع: {format_num(account['defense'])}
+کاراکتر: {character_text}
+آخرین بروزرسانی: {account['last_updated']}
 
 👇 گزینه مورد نظر:"""
     
@@ -173,10 +193,22 @@ async def clan_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     stats = db.get_clan_stats()
     
+    # آمار کاراکترها
+    cursor = db.conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM accounts WHERE character = 'cat' AND is_active = TRUE")
+    cats = cursor.fetchone()['count'] or 0
+    
+    cursor.execute("SELECT COUNT(*) FROM accounts WHERE character = 'dog' AND is_active = TRUE")
+    dogs = cursor.fetchone()['count'] or 0
+    
+    cursor.execute("SELECT COUNT(*) FROM accounts WHERE character = 'frog' AND is_active = TRUE")
+    frogs = cursor.fetchone()['count'] or 0
+    
     text = f"""📊 آمار کلن
 
 👥 کاربران: {stats['total_users']}
 🎮 اکانت‌ها: {stats['total_accounts']}
+🐱 گربه: {cats} | 🐶 سگ: {dogs} | 🐸 قورباغه: {frogs}
 ⚔️ کل اتک: {format_num(stats['total_attack'])}
 🛡️ کل دفاع: {format_num(stats['total_defense'])}"""
     
@@ -205,11 +237,36 @@ async def top_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         text = f"🏆 {limit} نفر برتر\n\n"
         for rank in rankings:
-            text += f"{rank['rank']}. {rank['game_name']}\n"
+            text += f"{rank['rank']}. {rank['game_name']} {rank['character_icon']}\n"
             text += f"   👤 {rank['user_display']}\n"
             text += f"   ⚔️ {format_num(rank['attack'])} | 🛡️ {format_num(rank['defense'])}\n\n"
     
     await query.edit_message_text(text, reply_markup=back_button())
+
+async def show_full_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش رتبه‌بندی کامل"""
+    query = update.callback_query
+    await query.answer()
+    
+    rankings = db.get_full_rankings()
+    
+    if not rankings:
+        text = "📭 هنوز اکانتی ثبت نشده است."
+    else:
+        text = f"🏆 رتبه‌بندی کامل ({len(rankings)} اکانت)\n\n"
+        for rank in rankings[:50]:  # محدود به 50 تا برای جلوگیری از overflow
+            text += f"{rank['rank']}. {rank['game_name']} {rank['character_icon']}\n"
+            text += f"   👤 {rank['user_display']}\n"
+            text += f"   ⚔️ {format_num(rank['attack'])} | 🛡️ {format_num(rank['defense'])}\n"
+            text += f"   💪 کل: {format_num(rank['total_power'])}\n\n"
+    
+        if len(rankings) > 50:
+            text += f"📝 ... و {len(rankings) - 50} اکانت دیگر"
+    
+    await query.edit_message_text(
+        text[:4000],  # محدودیت تلگرام
+        reply_markup=back_button()
+    )
 
 async def update_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """منوی تغییر"""
@@ -295,19 +352,54 @@ async def get_defense(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return GET_DEFENSE
     
     defense = int(text)
-    user_id = update.effective_user.id
-    game_name = context.user_data['game_name']
-    attack = context.user_data['attack']
-    
-    db.add_account(user_id, game_name, attack, defense)
-    account_count = db.get_account_count(user_id)
+    context.user_data['defense'] = defense
     
     await update.message.reply_text(
+        f"دفاع: {format_num(defense)}\n\n"
+        "لطفاً کاراکتر اکانت خود را انتخاب کنید:",
+        reply_markup=character_selection_menu()
+    )
+    return GET_CHARACTER
+
+async def get_character(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دریافت کاراکتر"""
+    query = update.callback_query
+    await query.answer()
+    
+    character_map = {
+        'char_cat_new': 'cat',
+        'char_dog_new': 'dog',
+        'char_frog_new': 'frog'
+    }
+    
+    character = character_map.get(query.data, 'none')
+    context.user_data['character'] = character
+    
+    user_id = query.from_user.id
+    game_name = context.user_data['game_name']
+    attack = context.user_data['attack']
+    defense = context.user_data['defense']
+    
+    # ذخیره در دیتابیس با کاراکتر
+    account_id = db.add_account(user_id, game_name, attack, defense)
+    if character != 'none':
+        db.update_account(account_id, character=character)
+    
+    account_count = db.get_account_count(user_id)
+    
+    character_text = {
+        'cat': '🐱 گربه',
+        'dog': '🐶 سگ',
+        'frog': '🐸 قورباغه'
+    }.get(character, 'بدون کاراکتر')
+    
+    await query.edit_message_text(
         f"""✅ اکانت ثبت شد!
 
 🎮 نام: {game_name}
 ⚔️ اتک: {format_num(attack)}
 🛡️ دفاع: {format_num(defense)}
+🎭 کاراکتر: {character_text}
 
 تعداد اکانت‌های شما: {account_count}""",
         reply_markup=main_menu(user_id, db)
@@ -332,8 +424,10 @@ async def start_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "مقدار جدید اتک را وارد کنید:"
     elif update_type == "defense":
         text = "مقدار جدید دفاع را وارد کنید:"
-    else:
+    elif update_type == "name":
         text = "نام جدید را وارد کنید:"
+    else:
+        text = "مقدار جدید را وارد کنید:"
     
     await query.edit_message_text(text, reply_markup=cancel_button())
     return UPDATE_VALUE
@@ -374,6 +468,44 @@ async def handle_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
+async def change_character(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تغییر کاراکتر"""
+    query = update.callback_query
+    await query.answer()
+    
+    account_id = int(query.data.split("_")[2])
+    
+    await query.edit_message_text(
+        "کاراکتر جدید را انتخاب کنید:",
+        reply_markup=character_menu(account_id)
+    )
+
+async def set_character(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنظیم کاراکتر"""
+    query = update.callback_query
+    await query.answer()
+    
+    parts = query.data.split("_")
+    character_type = parts[1]  # cat, dog, frog
+    account_id = int(parts[2])
+    
+    character_map = {
+        'cat': '🐱 گربه',
+        'dog': '🐶 سگ',
+        'frog': '🐸 قورباغه'
+    }
+    
+    if db.update_account(account_id, character=character_type):
+        character_text = character_map.get(character_type, 'بدون کاراکتر')
+        await query.edit_message_text(
+            f"✅ کاراکتر به {character_text} تغییر یافت!",
+            reply_markup=main_menu(query.from_user.id, db)
+        )
+    else:
+        await query.edit_message_text(
+            "❌ خطا در تغییر کاراکتر!",
+            reply_markup=main_menu(query.from_user.id, db)
+        )
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پنل ادمین"""
     query = update.callback_query
@@ -508,11 +640,17 @@ async def admin_view_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE
     total_attack = sum(acc['attack'] for acc in accounts)
     total_defense = sum(acc['defense'] for acc in accounts)
     
+    # شمارش کاراکترها
+    cats = sum(1 for acc in accounts if acc['character'] == 'cat')
+    dogs = sum(1 for acc in accounts if acc['character'] == 'dog')
+    frogs = sum(1 for acc in accounts if acc['character'] == 'frog')
+    
     text = f"""
 🎮 اکانت‌های کاربر
 
 👤 آیدی کاربر: {target_user_id}
 📊 تعداد اکانت‌ها: {len(accounts)}
+🐱 گربه: {cats} | 🐶 سگ: {dogs} | 🐸 قورباغه: {frogs}
 ⚔️ مجموع اتک: {format_num(total_attack)}
 🛡️ مجموع دفاع: {format_num(total_defense)}
 
@@ -546,6 +684,17 @@ async def admin_account_detail(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
     
+    # تعیین کاراکتر
+    character_text = ""
+    if account['character'] == 'cat':
+        character_text = "🐱 گربه"
+    elif account['character'] == 'dog':
+        character_text = "🐶 سگ"
+    elif account['character'] == 'frog':
+        character_text = "🐸 قورباغه"
+    else:
+        character_text = "بدون کاراکتر"
+    
     text = f"""
 🎮 جزئیات اکانت
 
@@ -554,7 +703,9 @@ async def admin_account_detail(update: Update, context: ContextTypes.DEFAULT_TYP
 📛 نام: {account['game_name']}
 ⚔️ اتک: {format_num(account['attack'])}
 🛡️ دفاع: {format_num(account['defense'])}
+🎭 کاراکتر: {character_text}
 📊 مجموع: {format_num(account['attack'] + account['defense'])}
+📅 آخرین بروزرسانی: {account['last_updated']}
 
 👇 عملیات مورد نظر را انتخاب کنید:
 """
@@ -585,6 +736,17 @@ async def admin_delete_account(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
     
+    # تعیین کاراکتر
+    character_text = ""
+    if account['character'] == 'cat':
+        character_text = "🐱 گربه"
+    elif account['character'] == 'dog':
+        character_text = "🐶 سگ"
+    elif account['character'] == 'frog':
+        character_text = "🐸 قورباغه"
+    else:
+        character_text = "بدون کاراکتر"
+    
     text = f"""
 ⚠️ تایید حذف اکانت
 
@@ -592,6 +754,7 @@ async def admin_delete_account(update: Update, context: ContextTypes.DEFAULT_TYP
 👤 آیدی کاربر: {account['user_id']}
 ⚔️ اتک: {format_num(account['attack'])}
 🛡️ دفاع: {format_num(account['defense'])}
+🎭 کاراکتر: {character_text}
 
 ❌ این عمل غیرقابل بازگشت است!
 
@@ -798,12 +961,29 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admins_count = sum(1 for u in users if u['is_admin'])
     regular_users = total_users - admins_count
     
+    # آمار کاراکترها
+    cursor = db.conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM accounts WHERE character = 'cat' AND is_active = TRUE")
+    cats = cursor.fetchone()['count'] or 0
+    
+    cursor.execute("SELECT COUNT(*) FROM accounts WHERE character = 'dog' AND is_active = TRUE")
+    dogs = cursor.fetchone()['count'] or 0
+    
+    cursor.execute("SELECT COUNT(*) FROM accounts WHERE character = 'frog' AND is_active = TRUE")
+    frogs = cursor.fetchone()['count'] or 0
+    
+    cursor.execute("SELECT COUNT(*) FROM accounts WHERE character = 'none' AND is_active = TRUE")
+    no_character = cursor.fetchone()['count'] or 0
+    
     if stats['total_accounts'] > 0:
         avg_attack = stats['total_attack'] // stats['total_accounts']
         avg_defense = stats['total_defense'] // stats['total_accounts']
         avg_total = avg_attack + avg_defense
     else:
         avg_attack = avg_defense = avg_total = 0
+    
+    # آخرین بروزرسانی‌ها
+    update_history = db.get_update_history(7)
     
     text = f"""
 📈 آمار پیشرفته کلن
@@ -819,6 +999,12 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • کل اکانت‌ها: {stats['total_accounts']}
 • کاربران فعال: {stats['total_users']}
 
+🐱 **کاراکترها:**
+• گربه: {cats}
+• سگ: {dogs}
+• قورباغه: {frogs}
+• بدون کاراکتر: {no_character}
+
 ⚔️ **نیروها:**
 • کل اتک: {format_num(stats['total_attack'])}
 • کل دفاع: {format_num(stats['total_defense'])}
@@ -829,14 +1015,118 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • میانگین دفاع: {format_num(avg_defense)}
 • میانگین کل: {format_num(avg_total)}
 
+📅 **بروزرسانی‌های ۷ روز گذشته:**
+"""
+    
+    if update_history:
+        for record in update_history[:5]:  # فقط ۵ روز اخیر
+            text += f"• {record['date']}: {record['update_count']} بروزرسانی\n"
+    else:
+        text += "• هیچ بروزرسانی ثبت نشده\n"
+    
+    text += """
 💾 **دیتابیس:**
 • PostgreSQL Railway
 • 24/7 آنلاین
 """
     
     await query.edit_message_text(
-        text,
+        text[:4000],
         reply_markup=admin_panel_menu()
+    )
+
+async def admin_update_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تاریخ بروزرسانی‌ها برای ادمین"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        await query.edit_message_text(
+            "❌ دسترسی غیرمجاز!",
+            reply_markup=main_menu(user_id, db)
+        )
+        return
+    
+    await query.edit_message_text(
+        "📅 تاریخ بروزرسانی اکانت‌ها\n\n"
+        "لطفاً بازه زمانی مورد نظر را انتخاب کنید:",
+        reply_markup=admin_update_history_menu()
+    )
+
+async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش بروزرسانی‌های یک تاریخ خاص"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if not db.is_admin(user_id):
+        return
+    
+    from datetime import date, timedelta
+    
+    today = date.today()
+    
+    if query.data == "admin_updates_today":
+        target_date = today
+        title = "امروز"
+    elif query.data == "admin_updates_yesterday":
+        target_date = today - timedelta(days=1)
+        title = "دیروز"
+    elif query.data == "admin_updates_week":
+        # تاریخ 7 روز گذشته
+        target_date = today - timedelta(days=7)
+        title = "۷ روز گذشته"
+    else:  # admin_updates_month
+        target_date = today - timedelta(days=30)
+        title = "۳۰ روز گذشته"
+    
+    if 'week' in query.data or 'month' in query.data:
+        # نمایش آمار کلی برای بازه زمانی
+        days = 7 if 'week' in query.data else 30
+        history = db.get_update_history(days)
+        
+        if not history:
+            text = f"📭 هیچ بروزرسانی در {title} ثبت نشده است."
+        else:
+            text = f"📊 آمار بروزرسانی {title}\n\n"
+            total_updates = 0
+            
+            for record in history:
+                text += f"📅 {record['date']}: {record['update_count']} بروزرسانی\n"
+                total_updates += record['update_count']
+            
+            text += f"\n📈 مجموع: {total_updates} بروزرسانی"
+    else:
+        # نمایش جزئیات برای یک روز خاص
+        accounts = db.get_accounts_updated_on_date(target_date)
+        
+        if not accounts:
+            text = f"📭 هیچ بروزرسانی در {title} ({target_date}) ثبت نشده است."
+        else:
+            text = f"📋 اکانت‌های بروزرسانی شده در {title}\n"
+            text += f"📅 تاریخ: {target_date}\n"
+            text += f"📊 تعداد: {len(accounts)}\n\n"
+            
+            for i, acc in enumerate(accounts, 1):
+                character_icon = ""
+                if acc['character'] == 'cat':
+                    character_icon = "🐱"
+                elif acc['character'] == 'dog':
+                    character_icon = "🐶"
+                elif acc['character'] == 'frog':
+                    character_icon = "🐸"
+                
+                username = f"@{acc['username']}" if acc['username'] else acc['first_name']
+                text += f"{i}. {acc['game_name']} {character_icon}\n"
+                text += f"   👤 {username}\n"
+                text += f"   ⚔️ {format_num(acc['attack'])} | 🛡️ {format_num(acc['defense'])}\n\n"
+    
+    await query.edit_message_text(
+        text[:4000],
+        reply_markup=back_button()
     )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -876,7 +1166,8 @@ def main():
         states={
             GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
             GET_ATTACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_attack)],
-            GET_DEFENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_defense)]
+            GET_DEFENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_defense)],
+            GET_CHARACTER: [CallbackQueryHandler(get_character, pattern=r"^char_(cat|dog|frog)_new$")]
         },
         fallbacks=[
             CallbackQueryHandler(cancel, pattern="^cancel$"),
@@ -912,6 +1203,17 @@ def main():
     app.add_handler(CallbackQueryHandler(update_menu, pattern="^update_menu$"))
     app.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel$"))
     app.add_handler(CallbackQueryHandler(admin_stats, pattern="^admin_stats$"))
+    
+    # هندلرهای جدید برای کاراکتر
+    app.add_handler(CallbackQueryHandler(change_character, pattern=r"^change_char_\d+$"))
+    app.add_handler(CallbackQueryHandler(set_character, pattern=r"^char_(cat|dog|frog)_\d+$"))
+    
+    # هندلر جدید برای رتبه‌بندی کامل
+    app.add_handler(CallbackQueryHandler(show_full_rankings, pattern="^full_rankings$"))
+    
+    # هندلرهای جدید برای تاریخ بروزرسانی ادمین
+    app.add_handler(CallbackQueryHandler(admin_update_history, pattern="^admin_update_history$"))
+    app.add_handler(CallbackQueryHandler(admin_show_updates, pattern=r"^admin_updates_(today|yesterday|week|month)$"))
     
     # هندلرهای مدیریت ادمین
     app.add_handler(CallbackQueryHandler(admin_users, pattern="^admin_users$"))

@@ -1271,7 +1271,8 @@ def main():
         fallbacks=[
             CallbackQueryHandler(cancel, pattern="^cancel$"),
             CommandHandler("cancel", cancel_text)
-        ]
+        ],
+        per_message=True
     )
     
     update_conv = ConversationHandler(
@@ -1284,7 +1285,8 @@ def main():
         fallbacks=[
             CallbackQueryHandler(cancel, pattern="^cancel$"),
             CommandHandler("cancel", cancel_text)
-        ]
+        ],
+        per_message=True
     )
     
     app.add_handler(CommandHandler("start", start))

@@ -268,9 +268,9 @@ async def show_full_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text += f"📈 ظرفیت نمایش: همه اکانت‌ها\n\n"
         
         # نمایش ۵۰ اکانت اول
-        display_count = min(50, total_accounts)
+        display_count = min(250, total_accounts)
         
-        if total_accounts <= 50:
+        if total_accounts <= 250:
             text += f"**🔝 تمام اکانت‌ها:**\n\n"
         else:
             text += f"**🔝 {display_count} اکانت برتر (از {total_accounts}):**\n\n"

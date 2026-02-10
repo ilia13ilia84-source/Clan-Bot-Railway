@@ -253,7 +253,7 @@ async def top_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, reply_markup=back_button())
 
 async def show_full_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش رتبه‌بندی کامل (بدون محدودیت)"""
+    """نمایش رتبه‌بندی کامل (همه اکانت‌ها)"""
     query = update.callback_query
     await query.answer()
     
@@ -265,29 +265,34 @@ async def show_full_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE)
         total_accounts = len(rankings)
         text = f"🏆 **رتبه‌بندی کامل کلن**\n"
         text += f"📊 تعداد کل اکانت‌ها: {total_accounts}\n"
-        text += f"📈 ظرفیت نمایش: نامحدود\n\n"
+        text += f"📈 ظرفیت نمایش: همه اکانت‌ها\n\n"
         
         # نمایش ۵۰ اکانت اول
         display_count = min(50, total_accounts)
-        text += f"**🔝 {display_count} اکانت برتر:**\n\n"
+        
+        if total_accounts <= 50:
+            text += f"**🔝 تمام اکانت‌ها:**\n\n"
+        else:
+            text += f"**🔝 {display_count} اکانت برتر (از {total_accounts}):**\n\n"
         
         for i, rank in enumerate(rankings[:display_count], 1):
             text += f"**{rank['rank']}.** {rank['game_name']} {rank['character_icon']}\n"
             text += f"   👤 {rank['user_display']}\n"
             text += f"   ⚔️ {format_num(rank['attack'])} | 🛡️ {format_num(rank['defense'])}\n"
-            text += f"   💪 **کل: {format_num(rank['total_power'])}**\n\n"
         
         if total_accounts > display_count:
-            text += f"📝 ... و **{total_accounts - display_count}** اکانت دیگر\n\n"
+            text += f"\n📝 ... و **{total_accounts - display_count}** اکانت دیگر\n\n"
         
         # نمایش آمار
         if total_accounts > 0:
-            avg_power = sum(r['total_power'] for r in rankings) // total_accounts
+            avg_attack = sum(r['attack'] for r in rankings) // total_accounts
+            avg_defense = sum(r['defense'] for r in rankings) // total_accounts
             text += f"📊 **آمار کلی:**\n"
-            text += f"• میانگین نیرو: {format_num(avg_power)}\n"
-            text += f"• بالاترین نیرو: {format_num(rankings[0]['total_power'])}\n"
+            text += f"• میانگین اتک: {format_num(avg_attack)}\n"
+            text += f"• میانگین دفاع: {format_num(avg_defense)}\n"
+            text += f"• بالاترین رتبه: {rankings[0]['game_name']}\n"
             if total_accounts > 1:
-                text += f"• پایین‌ترین نیرو: {format_num(rankings[-1]['total_power'])}"
+                text += f"• پایین‌ترین رتبه: {rankings[-1]['game_name']}"
     
     await query.edit_message_text(
         text[:4000],  # محدودیت تلگرام
@@ -1035,23 +1040,23 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚔️ **نیروها:**
 • کل اتک: {format_num(stats['total_attack'])}
 • کل دفاع: {format_num(stats['total_defense'])}
-• کل نیرو: {format_num(stats['total_attack'] + stats['total_defense'])}
 
 📊 **میانگین‌ها:**
 • میانگین اتک: {format_num(avg_attack)}
 • میانگین دفاع: {format_num(avg_defense)}
 • میانگین کل: {format_num(avg_total)}
 
-📅 **بروزرسانی‌های اخیر (زمان تهران):**
+📅 **بروزرسانی‌های اخیر (زمان ایران 00:01 به بعد):**
 • امروز: {update_stats['today']} بروزرسانی
 • دیروز: {update_stats['yesterday']} بروزرسانی
 • ۲ روز پیش: {update_stats['two_days_ago']} بروزرسانی
 • ۷ روز گذشته: {update_stats['last_7_days']} بروزرسانی
+• کل بروزرسانی‌ها: {update_stats['total_updates']}
 
 💾 **دیتابیس:**
 • PostgreSQL Railway
 • 24/7 آنلاین
-• زمان سرور: تهران (UTC+3:30)
+• زمان سرور: ایران (00:01 به بعد)
 """
     
     await query.edit_message_text(
@@ -1075,7 +1080,7 @@ async def admin_update_history(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await query.edit_message_text(
         "📅 **تاریخ بروزرسانی اکانت‌ها**\n\n"
-        "⏰ **زمان:** تهران (UTC+3:30)\n"
+        "⏰ **زمان:** ایران (از ساعت 00:01)\n"
         "📝 **توضیح:** فقط تغییرات اتک و دفاع نمایش داده می‌شوند\n\n"
         "لطفاً بازه زمانی مورد نظر را انتخاب کنید:",
         reply_markup=admin_update_history_menu()
@@ -1114,7 +1119,7 @@ async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text = f"""
 📊 **آمار بروزرسانی نیروها**
 
-⏰ **زمان:** تهران (UTC+3:30)
+⏰ **زمان:** ایران (از ساعت 00:01)
 📝 **توضیح:** فقط تغییرات اتک و دفاع محاسبه می‌شوند
 
 📅 **آمار روزانه:**
@@ -1125,10 +1130,13 @@ async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE)
 📈 **آمار هفتگی:**
 • ۷ روز گذشته: **{stats['last_7_days']}** بروزرسانی
 
-🔢 **نکات:**
+🔢 **کل بروزرسانی‌ها:**
+• از ابتدا: **{stats['total_updates']}** بروزرسانی
+
+🔧 **نکات:**
 • بروزرسانی = تغییر اتک یا دفاع یک اکانت
 • فقط اکانت‌های فعال محاسبه می‌شوند
-• تاریخ بروزرسانی با زمان تهران محاسبه می‌شود
+• تاریخ بروزرسانی با زمان ایران محاسبه می‌شود
 • ثبت اکانت جدید به عنوان بروزرسانی محسوب نمی‌شود
 """
         
@@ -1146,7 +1154,7 @@ async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE)
             text = f"📭 هیچ بروزرسانی در ۷ روز گذشته ثبت نشده است."
         else:
             text = f"📊 **آمار بروزرسانی ۷ روز گذشته**\n\n"
-            text += f"⏰ زمان: تهران (UTC+3:30)\n\n"
+            text += f"⏰ زمان: ایران (از ساعت 00:01)\n\n"
             
             total_updates = 0
             for record in history:
@@ -1170,7 +1178,7 @@ async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text = f"📋 **اکانت‌های بروزرسانی شده در {title}**\n"
         text += f"📅 تاریخ: {target_date}\n"
         text += f"📊 تعداد: {len(accounts)}\n"
-        text += f"⏰ زمان: تهران (UTC+3:30)\n\n"
+        text += f"⏰ زمان: ایران (از 00:01)\n\n"
         
         # گروه‌بندی بر اساس کاربر
         user_accounts = {}
@@ -1198,18 +1206,24 @@ async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     character_icon = "🐸"
                 
                 # نمایش زمان دقیق
-                tehran_time = acc.get('tehran_time', 'زمان نامعلوم')
-                if isinstance(tehran_time, str) and 'T' in tehran_time:
+                tehran_time = acc.get('tehran_time', '')
+                time_str = ""
+                if tehran_time:
                     try:
-                        dt = datetime.fromisoformat(tehran_time.replace('Z', '+00:00'))
-                        time_str = dt.strftime('%H:%M')
-                        tehran_time = f"ساعت {time_str}"
+                        if isinstance(tehran_time, str):
+                            # Convert to datetime
+                            from datetime import datetime
+                            dt = datetime.fromisoformat(tehran_time.replace('Z', '+00:00'))
+                            time_str = dt.strftime('%H:%M')
+                        else:
+                            time_str = tehran_time.strftime('%H:%M')
                     except:
                         pass
                 
                 text += f"   🎮 {acc['game_name']} {character_icon}\n"
                 text += f"   ⚔️ {format_num(acc['attack'])} | 🛡️ {format_num(acc['defense'])}\n"
-                text += f"   🕐 {tehran_time}\n"
+                if time_str:
+                    text += f"   🕐 ساعت: {time_str}\n"
             
             text += "\n"
     

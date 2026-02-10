@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -221,7 +221,7 @@ class Database:
                 updates.append("character = %s")
                 params.append(character)
             
-            # اضافه کردن تاریخ و ساعت بروزرسانی با تایم‌زون تهران
+            # اضافه کردن تاریخ و ساعت بروزرسانی
             updates.append("last_updated = CURRENT_TIMESTAMP")
             
             if not updates:
@@ -301,7 +301,8 @@ class Database:
                     a.character,
                     u.username,
                     u.first_name,
-                    u.user_id
+                    u.user_id,
+                    (a.attack + a.defense) as total
                 FROM accounts a
                 JOIN users u ON a.user_id = u.user_id
                 WHERE a.is_active = TRUE
@@ -341,7 +342,7 @@ class Database:
             return []
     
     def get_full_rankings(self):
-        """Get all rankings (برای همه) - بدون محدودیت"""
+        """Get all rankings (برای همه) - کاملاً درست"""
         cursor = self.conn.cursor()
         try:
             cursor.execute('''
@@ -353,18 +354,17 @@ class Database:
                     u.username,
                     u.first_name,
                     u.user_id,
-                    (a.attack + a.defense) as total_power,
-                    ROW_NUMBER() OVER (ORDER BY (a.attack + a.defense) DESC) as rank
+                    (a.attack + a.defense) as total
                 FROM accounts a
                 JOIN users u ON a.user_id = u.user_id
                 WHERE a.is_active = TRUE
-                ORDER BY total_power DESC
+                ORDER BY (a.attack + a.defense) DESC
             ''')
             
             rankings = []
             rows = cursor.fetchall()
             
-            for row in rows:
+            for i, row in enumerate(rows, 1):
                 user_display = f"@{row['username']}" if row['username'] else row['first_name']
                 
                 # تعیین آیکون کاراکتر
@@ -377,15 +377,15 @@ class Database:
                     character_icon = "🐸"
                 
                 rankings.append({
-                    'rank': row['rank'],
+                    'rank': i,
                     'game_name': row['game_name'],
                     'attack': row['attack'],
                     'defense': row['defense'],
                     'character': row['character'],
                     'character_icon': character_icon,
-                    'total_power': row['total_power'],
                     'user_display': user_display,
-                    'user_id': row['user_id']
+                    'user_id': row['user_id'],
+                    'total': row['total']
                 })
             
             return rankings
@@ -415,18 +415,18 @@ class Database:
             logger.error(f"Error getting all users: {e}")
             return []
     
-    def get_update_history(self, days=30):
-        """Get accounts update history با زمان تهران"""
+    def get_update_history(self, days=7):
+        """Get accounts update history با زمان ایران"""
         cursor = self.conn.cursor()
         try:
             cursor.execute(f'''
                 SELECT 
-                    DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') as date,
+                    DATE(last_updated + INTERVAL '3:30' HOUR TO MINUTE) as date,
                     COUNT(*) as update_count
                 FROM accounts 
                 WHERE last_updated >= NOW() - INTERVAL '{days} days'
                     AND is_active = TRUE
-                GROUP BY DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran')
+                GROUP BY DATE(last_updated + INTERVAL '3:30' HOUR TO MINUTE)
                 ORDER BY date DESC
             ''')
             
@@ -436,7 +436,7 @@ class Database:
             return []
     
     def get_accounts_updated_on_date(self, days_ago=0):
-        """Get accounts updated on specific date با زمان تهران"""
+        """Get accounts updated on specific date با زمان ایران"""
         cursor = self.conn.cursor()
         try:
             cursor.execute(f'''
@@ -448,12 +448,12 @@ class Database:
                     u.username,
                     u.first_name,
                     u.user_id,
-                    a.last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran' as tehran_time
+                    a.last_updated + INTERVAL '3:30' HOUR TO MINUTE as tehran_time
                 FROM accounts a
                 JOIN users u ON a.user_id = u.user_id
                 WHERE a.is_active = TRUE
-                    AND DATE(a.last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') = 
-                        DATE(NOW() AT TIME ZONE 'Asia/Tehran') - INTERVAL '{days_ago} days'
+                    AND DATE(a.last_updated + INTERVAL '3:30' HOUR TO MINUTE) = 
+                        CURRENT_DATE - INTERVAL '{days_ago} days'
                 ORDER BY a.last_updated DESC
             ''')
         
@@ -463,38 +463,35 @@ class Database:
             return []
     
     def get_update_stats(self):
-        """Get update statistics for today, yesterday, and 2 days ago با زمان تهران"""
+        """Get update statistics for today, yesterday, and 2 days ago با زمان ایران"""
         cursor = self.conn.cursor()
         try:
             stats = {}
             
-            # امروز
+            # امروز ایران (از 00:01 به بعد)
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM accounts 
                 WHERE is_active = TRUE 
-                    AND DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') = 
-                        DATE(NOW() AT TIME ZONE 'Asia/Tehran')
+                    AND DATE(last_updated + INTERVAL '3:30' HOUR TO MINUTE) = CURRENT_DATE
             ''')
             stats['today'] = cursor.fetchone()['count'] or 0
             
-            # دیروز
+            # دیروز ایران
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM accounts 
                 WHERE is_active = TRUE 
-                    AND DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') = 
-                        DATE(NOW() AT TIME ZONE 'Asia/Tehran') - INTERVAL '1 day'
+                    AND DATE(last_updated + INTERVAL '3:30' HOUR TO MINUTE) = CURRENT_DATE - INTERVAL '1 day'
             ''')
             stats['yesterday'] = cursor.fetchone()['count'] or 0
             
-            # دو روز پیش
+            # دو روز پیش ایران
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM accounts 
                 WHERE is_active = TRUE 
-                    AND DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') = 
-                        DATE(NOW() AT TIME ZONE 'Asia/Tehran') - INTERVAL '2 days'
+                    AND DATE(last_updated + INTERVAL '3:30' HOUR TO MINUTE) = CURRENT_DATE - INTERVAL '2 days'
             ''')
             stats['two_days_ago'] = cursor.fetchone()['count'] or 0
             
@@ -507,10 +504,19 @@ class Database:
             ''')
             stats['last_7_days'] = cursor.fetchone()['count'] or 0
             
+            # آمار کل بروزرسانی‌ها
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM accounts 
+                WHERE is_active = TRUE 
+                    AND last_updated > created_at
+            ''')
+            stats['total_updates'] = cursor.fetchone()['count'] or 0
+            
             return stats
         except Exception as e:
             logger.error(f"Error getting update stats: {e}")
-            return {'today': 0, 'yesterday': 0, 'two_days_ago': 0, 'last_7_days': 0}
+            return {'today': 0, 'yesterday': 0, 'two_days_ago': 0, 'last_7_days': 0, 'total_updates': 0}
 
 # Create database instance
 try:

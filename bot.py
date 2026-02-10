@@ -278,7 +278,7 @@ async def show_full_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for i, rank in enumerate(rankings[:display_count], 1):
             text += f"**{rank['rank']}.** {rank['game_name']} {rank['character_icon']}\n"
             text += f"   👤 {rank['user_display']}\n"
-            text += f"   ⚔️ {format_num(rank['attack'])} | 🛡️ {format_num(rank['defense'])}\n"
+            text += f"   ⚔️ {format_num(rank['attack'])} | 🛡️ {format_num(rank['defense'])}\n\n"
         
         if total_accounts > display_count:
             text += f"\n📝 ... و **{total_accounts - display_count}** اکانت دیگر\n\n"
@@ -1272,7 +1272,11 @@ def main():
             CallbackQueryHandler(cancel, pattern="^cancel$"),
             CommandHandler("cancel", cancel_text)
         ],
-        per_message=True
+        per_chat=True,
+        per_user=True,
+        per_message=False,
+        conversation_timeout=300
+
     )
     
     update_conv = ConversationHandler(
@@ -1286,7 +1290,10 @@ def main():
             CallbackQueryHandler(cancel, pattern="^cancel$"),
             CommandHandler("cancel", cancel_text)
         ],
-        per_message=True
+        per_chat=True,
+        per_user=True,
+        per_message=False,
+        conversation_timeout=300
     )
     
     app.add_handler(CommandHandler("start", start))

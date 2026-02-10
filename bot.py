@@ -131,13 +131,22 @@ async def view_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         character_text = "❌ بدون کاراکتر"
     
+    # فرمت تاریخ
+    from datetime import datetime
+    last_updated = account['last_updated']
+    if isinstance(last_updated, str):
+        try:
+            last_updated = datetime.fromisoformat(last_updated.replace('Z', '+00:00'))
+        except:
+            pass
+    
     text = f"""🎮 مدیریت اکانت
 
 نام: {account['game_name']}
 اتک: {format_num(account['attack'])}
 دفاع: {format_num(account['defense'])}
 کاراکتر: {character_text}
-آخرین بروزرسانی: {account['last_updated']}
+آخرین بروزرسانی: {last_updated.strftime('%Y-%m-%d %H:%M') if isinstance(last_updated, datetime) else last_updated}
 
 👇 گزینه مورد نظر:"""
     
@@ -244,7 +253,7 @@ async def top_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, reply_markup=back_button())
 
 async def show_full_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش رتبه‌بندی کامل"""
+    """نمایش رتبه‌بندی کامل (بدون محدودیت)"""
     query = update.callback_query
     await query.answer()
     
@@ -253,15 +262,32 @@ async def show_full_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not rankings:
         text = "📭 هنوز اکانتی ثبت نشده است."
     else:
-        text = f"🏆 رتبه‌بندی کامل ({len(rankings)} اکانت)\n\n"
-        for rank in rankings[:50]:  # محدود به 50 تا برای جلوگیری از overflow
-            text += f"{rank['rank']}. {rank['game_name']} {rank['character_icon']}\n"
+        total_accounts = len(rankings)
+        text = f"🏆 **رتبه‌بندی کامل کلن**\n"
+        text += f"📊 تعداد کل اکانت‌ها: {total_accounts}\n"
+        text += f"📈 ظرفیت نمایش: نامحدود\n\n"
+        
+        # نمایش ۵۰ اکانت اول
+        display_count = min(50, total_accounts)
+        text += f"**🔝 {display_count} اکانت برتر:**\n\n"
+        
+        for i, rank in enumerate(rankings[:display_count], 1):
+            text += f"**{rank['rank']}.** {rank['game_name']} {rank['character_icon']}\n"
             text += f"   👤 {rank['user_display']}\n"
             text += f"   ⚔️ {format_num(rank['attack'])} | 🛡️ {format_num(rank['defense'])}\n"
-            text += f"   💪 کل: {format_num(rank['total_power'])}\n\n"
-    
-        if len(rankings) > 50:
-            text += f"📝 ... و {len(rankings) - 50} اکانت دیگر"
+            text += f"   💪 **کل: {format_num(rank['total_power'])}**\n\n"
+        
+        if total_accounts > display_count:
+            text += f"📝 ... و **{total_accounts - display_count}** اکانت دیگر\n\n"
+        
+        # نمایش آمار
+        if total_accounts > 0:
+            avg_power = sum(r['total_power'] for r in rankings) // total_accounts
+            text += f"📊 **آمار کلی:**\n"
+            text += f"• میانگین نیرو: {format_num(avg_power)}\n"
+            text += f"• بالاترین نیرو: {format_num(rankings[0]['total_power'])}\n"
+            if total_accounts > 1:
+                text += f"• پایین‌ترین نیرو: {format_num(rankings[-1]['total_power'])}"
     
     await query.edit_message_text(
         text[:4000],  # محدودیت تلگرام
@@ -506,6 +532,7 @@ async def set_character(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ خطا در تغییر کاراکتر!",
             reply_markup=main_menu(query.from_user.id, db)
         )
+
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """پنل ادمین"""
     query = update.callback_query
@@ -982,8 +1009,8 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         avg_attack = avg_defense = avg_total = 0
     
-    # آخرین بروزرسانی‌ها
-    update_history = db.get_update_history(7)
+    # آمار بروزرسانی‌ها
+    update_stats = db.get_update_stats()
     
     text = f"""
 📈 آمار پیشرفته کلن
@@ -1015,19 +1042,16 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • میانگین دفاع: {format_num(avg_defense)}
 • میانگین کل: {format_num(avg_total)}
 
-📅 **بروزرسانی‌های ۷ روز گذشته:**
-"""
-    
-    if update_history:
-        for record in update_history[:5]:  # فقط ۵ روز اخیر
-            text += f"• {record['date']}: {record['update_count']} بروزرسانی\n"
-    else:
-        text += "• هیچ بروزرسانی ثبت نشده\n"
-    
-    text += """
+📅 **بروزرسانی‌های اخیر (زمان تهران):**
+• امروز: {update_stats['today']} بروزرسانی
+• دیروز: {update_stats['yesterday']} بروزرسانی
+• ۲ روز پیش: {update_stats['two_days_ago']} بروزرسانی
+• ۷ روز گذشته: {update_stats['last_7_days']} بروزرسانی
+
 💾 **دیتابیس:**
 • PostgreSQL Railway
 • 24/7 آنلاین
+• زمان سرور: تهران (UTC+3:30)
 """
     
     await query.edit_message_text(
@@ -1050,7 +1074,9 @@ async def admin_update_history(update: Update, context: ContextTypes.DEFAULT_TYP
         return
     
     await query.edit_message_text(
-        "📅 تاریخ بروزرسانی اکانت‌ها\n\n"
+        "📅 **تاریخ بروزرسانی اکانت‌ها**\n\n"
+        "⏰ **زمان:** تهران (UTC+3:30)\n"
+        "📝 **توضیح:** فقط تغییرات اتک و دفاع نمایش داده می‌شوند\n\n"
         "لطفاً بازه زمانی مورد نظر را انتخاب کنید:",
         reply_markup=admin_update_history_menu()
     )
@@ -1072,45 +1098,97 @@ async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if query.data == "admin_updates_today":
         target_date = today
         title = "امروز"
+        days_back = 0
     elif query.data == "admin_updates_yesterday":
         target_date = today - timedelta(days=1)
         title = "دیروز"
-    elif query.data == "admin_updates_week":
-        # تاریخ 7 روز گذشته
-        target_date = today - timedelta(days=7)
-        title = "۷ روز گذشته"
-    else:  # admin_updates_month
-        target_date = today - timedelta(days=30)
-        title = "۳۰ روز گذشته"
-    
-    if 'week' in query.data or 'month' in query.data:
+        days_back = 1
+    elif query.data == "admin_updates_2days":
+        target_date = today - timedelta(days=2)
+        title = "دو روز پیش"
+        days_back = 2
+    elif query.data == "admin_updates_stats":
+        # نمایش آمار
+        stats = db.get_update_stats()
+        
+        text = f"""
+📊 **آمار بروزرسانی نیروها**
+
+⏰ **زمان:** تهران (UTC+3:30)
+📝 **توضیح:** فقط تغییرات اتک و دفاع محاسبه می‌شوند
+
+📅 **آمار روزانه:**
+• امروز: **{stats['today']}** بروزرسانی
+• دیروز: **{stats['yesterday']}** بروزرسانی  
+• ۲ روز پیش: **{stats['two_days_ago']}** بروزرسانی
+
+📈 **آمار هفتگی:**
+• ۷ روز گذشته: **{stats['last_7_days']}** بروزرسانی
+
+🔢 **نکات:**
+• بروزرسانی = تغییر اتک یا دفاع یک اکانت
+• فقط اکانت‌های فعال محاسبه می‌شوند
+• تاریخ بروزرسانی با زمان تهران محاسبه می‌شود
+• ثبت اکانت جدید به عنوان بروزرسانی محسوب نمی‌شود
+"""
+        
+        await query.edit_message_text(
+            text[:4000],
+            reply_markup=back_button()
+        )
+        return
+    else:  # admin_updates_week
         # نمایش آمار کلی برای بازه زمانی
-        days = 7 if 'week' in query.data else 30
+        days = 7
         history = db.get_update_history(days)
         
         if not history:
-            text = f"📭 هیچ بروزرسانی در {title} ثبت نشده است."
+            text = f"📭 هیچ بروزرسانی در ۷ روز گذشته ثبت نشده است."
         else:
-            text = f"📊 آمار بروزرسانی {title}\n\n"
-            total_updates = 0
+            text = f"📊 **آمار بروزرسانی ۷ روز گذشته**\n\n"
+            text += f"⏰ زمان: تهران (UTC+3:30)\n\n"
             
+            total_updates = 0
             for record in history:
-                text += f"📅 {record['date']}: {record['update_count']} بروزرسانی\n"
+                text += f"📅 **{record['date']}**: {record['update_count']} بروزرسانی\n"
                 total_updates += record['update_count']
             
-            text += f"\n📈 مجموع: {total_updates} بروزرسانی"
-    else:
-        # نمایش جزئیات برای یک روز خاص
-        accounts = db.get_accounts_updated_on_date(target_date)
+            text += f"\n📈 **مجموع:** {total_updates} بروزرسانی"
         
-        if not accounts:
-            text = f"📭 هیچ بروزرسانی در {title} ({target_date}) ثبت نشده است."
-        else:
-            text = f"📋 اکانت‌های بروزرسانی شده در {title}\n"
-            text += f"📅 تاریخ: {target_date}\n"
-            text += f"📊 تعداد: {len(accounts)}\n\n"
+        await query.edit_message_text(
+            text[:4000],
+            reply_markup=back_button()
+        )
+        return
+    
+    # نمایش جزئیات برای یک روز خاص
+    accounts = db.get_accounts_updated_on_date(days_back)
+    
+    if not accounts:
+        text = f"📭 هیچ بروزرسانی در {title} ({target_date}) ثبت نشده است."
+    else:
+        text = f"📋 **اکانت‌های بروزرسانی شده در {title}**\n"
+        text += f"📅 تاریخ: {target_date}\n"
+        text += f"📊 تعداد: {len(accounts)}\n"
+        text += f"⏰ زمان: تهران (UTC+3:30)\n\n"
+        
+        # گروه‌بندی بر اساس کاربر
+        user_accounts = {}
+        for acc in accounts:
+            user_id = acc['user_id']
+            if user_id not in user_accounts:
+                username = acc['username'] if acc['username'] else acc['first_name']
+                user_accounts[user_id] = {
+                    'username': username,
+                    'accounts': []
+                }
+            user_accounts[user_id]['accounts'].append(acc)
+        
+        for i, (user_id, user_data) in enumerate(user_accounts.items(), 1):
+            username_display = f"@{user_data['username']}" if user_data['username'] and not user_data['username'].startswith('@') else user_data['username']
+            text += f"{i}. 👤 **{username_display}**\n"
             
-            for i, acc in enumerate(accounts, 1):
+            for acc in user_data['accounts']:
                 character_icon = ""
                 if acc['character'] == 'cat':
                     character_icon = "🐱"
@@ -1119,10 +1197,21 @@ async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 elif acc['character'] == 'frog':
                     character_icon = "🐸"
                 
-                username = f"@{acc['username']}" if acc['username'] else acc['first_name']
-                text += f"{i}. {acc['game_name']} {character_icon}\n"
-                text += f"   👤 {username}\n"
-                text += f"   ⚔️ {format_num(acc['attack'])} | 🛡️ {format_num(acc['defense'])}\n\n"
+                # نمایش زمان دقیق
+                tehran_time = acc.get('tehran_time', 'زمان نامعلوم')
+                if isinstance(tehran_time, str) and 'T' in tehran_time:
+                    try:
+                        dt = datetime.fromisoformat(tehran_time.replace('Z', '+00:00'))
+                        time_str = dt.strftime('%H:%M')
+                        tehran_time = f"ساعت {time_str}"
+                    except:
+                        pass
+                
+                text += f"   🎮 {acc['game_name']} {character_icon}\n"
+                text += f"   ⚔️ {format_num(acc['attack'])} | 🛡️ {format_num(acc['defense'])}\n"
+                text += f"   🕐 {tehran_time}\n"
+            
+            text += "\n"
     
     await query.edit_message_text(
         text[:4000],
@@ -1200,6 +1289,7 @@ def main():
     app.add_handler(CallbackQueryHandler(clan_stats, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(show_rankings, pattern="^rankings$"))
     app.add_handler(CallbackQueryHandler(top_rankings, pattern="^top10$|^top20$"))
+    app.add_handler(CallbackQueryHandler(show_full_rankings, pattern="^full_rankings$"))
     app.add_handler(CallbackQueryHandler(update_menu, pattern="^update_menu$"))
     app.add_handler(CallbackQueryHandler(admin_panel, pattern="^admin_panel$"))
     app.add_handler(CallbackQueryHandler(admin_stats, pattern="^admin_stats$"))
@@ -1208,12 +1298,9 @@ def main():
     app.add_handler(CallbackQueryHandler(change_character, pattern=r"^change_char_\d+$"))
     app.add_handler(CallbackQueryHandler(set_character, pattern=r"^char_(cat|dog|frog)_\d+$"))
     
-    # هندلر جدید برای رتبه‌بندی کامل
-    app.add_handler(CallbackQueryHandler(show_full_rankings, pattern="^full_rankings$"))
-    
     # هندلرهای جدید برای تاریخ بروزرسانی ادمین
     app.add_handler(CallbackQueryHandler(admin_update_history, pattern="^admin_update_history$"))
-    app.add_handler(CallbackQueryHandler(admin_show_updates, pattern=r"^admin_updates_(today|yesterday|week|month)$"))
+    app.add_handler(CallbackQueryHandler(admin_show_updates, pattern=r"^admin_updates_(today|yesterday|2days|week|stats)$"))
     
     # هندلرهای مدیریت ادمین
     app.add_handler(CallbackQueryHandler(admin_users, pattern="^admin_users$"))

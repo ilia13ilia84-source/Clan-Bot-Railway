@@ -224,12 +224,13 @@ def rankings_menu():
     return InlineKeyboardMarkup(keyboard)
 
 def admin_update_history_menu():
-    """منوی تاریخ بروزرسانی برای ادمین"""
+    """منوی تاریخ بروزرسانی برای ادمین با زمان تهران"""
     keyboard = [
-        [InlineKeyboardButton("📅 امروز", callback_data="admin_updates_today")],
-        [InlineKeyboardButton("📅 دیروز", callback_data="admin_updates_yesterday")],
+        [InlineKeyboardButton("📅 امروز (تغییرات امروز)", callback_data="admin_updates_today")],
+        [InlineKeyboardButton("📅 دیروز (تغییرات دیروز)", callback_data="admin_updates_yesterday")],
+        [InlineKeyboardButton("📅 ۲ روز پیش", callback_data="admin_updates_2days")],
         [InlineKeyboardButton("📅 ۷ روز گذشته", callback_data="admin_updates_week")],
-        [InlineKeyboardButton("📅 ۳۰ روز گذشته", callback_data="admin_updates_month")],
+        [InlineKeyboardButton("📊 آمار بروزرسانی", callback_data="admin_updates_stats")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="admin_panel")]
     ]
     return InlineKeyboardMarkup(keyboard)

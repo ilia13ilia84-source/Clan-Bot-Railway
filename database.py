@@ -66,7 +66,7 @@ class Database:
                 )
             ''')
             
-            # Create accounts table با فیلدهای جدید (حتی اگر از قبل وجود داشته باشد)
+            # Create accounts table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS accounts (
                     id SERIAL PRIMARY KEY,
@@ -77,26 +77,9 @@ class Database:
                     character TEXT DEFAULT 'none',
                     is_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_updated DATE DEFAULT CURRENT_DATE
+                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
-            # Try to add missing columns if table already exists
-            try:
-                cursor.execute('''
-                    ALTER TABLE accounts 
-                    ADD COLUMN IF NOT EXISTS character TEXT DEFAULT 'none'
-                ''')
-            except:
-                pass  # Column might already exist
-            
-            try:
-                cursor.execute('''
-                    ALTER TABLE accounts 
-                    ADD COLUMN IF NOT EXISTS last_updated DATE DEFAULT CURRENT_DATE
-                ''')
-            except:
-                pass  # Column might already exist
             
             # Create indexes
             cursor.execute('''
@@ -116,19 +99,7 @@ class Database:
             
             self.conn.commit()
             
-            logger.info("✅ Database tables created/updated successfully")
-            
-            # Count existing records
-            try:
-                cursor.execute("SELECT COUNT(*) FROM users")
-                users_count = cursor.fetchone()['count']
-                
-                cursor.execute("SELECT COUNT(*) FROM accounts")
-                accounts_count = cursor.fetchone()['count']
-                
-                logger.info(f"📊 Current data: {users_count} users, {accounts_count} accounts")
-            except:
-                logger.info("📊 No data yet")
+            logger.info("✅ Database tables created successfully")
             
         except Exception as e:
             logger.error(f"❌ Error creating tables: {e}")
@@ -250,8 +221,8 @@ class Database:
                 updates.append("character = %s")
                 params.append(character)
             
-            # اضافه کردن تاریخ بروزرسانی
-            updates.append("last_updated = CURRENT_DATE")
+            # اضافه کردن تاریخ و ساعت بروزرسانی با تایم‌زون تهران
+            updates.append("last_updated = CURRENT_TIMESTAMP")
             
             if not updates:
                 return False
@@ -370,7 +341,7 @@ class Database:
             return []
     
     def get_full_rankings(self):
-        """Get all rankings (برای همه)"""
+        """Get all rankings (برای همه) - بدون محدودیت"""
         cursor = self.conn.cursor()
         try:
             cursor.execute('''
@@ -445,30 +416,30 @@ class Database:
             return []
     
     def get_update_history(self, days=30):
-        """Get accounts update history"""
+        """Get accounts update history با زمان تهران"""
         cursor = self.conn.cursor()
         try:
-            cursor.execute('''
+            cursor.execute(f'''
                 SELECT 
-                    last_updated as date,
+                    DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') as date,
                     COUNT(*) as update_count
                 FROM accounts 
-                WHERE last_updated >= CURRENT_DATE - INTERVAL '%s days'
+                WHERE last_updated >= NOW() - INTERVAL '{days} days'
                     AND is_active = TRUE
-                GROUP BY last_updated
-                ORDER BY last_updated DESC
-            ''', (days,))
+                GROUP BY DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran')
+                ORDER BY date DESC
+            ''')
             
             return cursor.fetchall()
         except Exception as e:
             logger.error(f"Error getting update history: {e}")
             return []
     
-    def get_accounts_updated_on_date(self, date):
-        """Get accounts updated on specific date"""
+    def get_accounts_updated_on_date(self, days_ago=0):
+        """Get accounts updated on specific date با زمان تهران"""
         cursor = self.conn.cursor()
         try:
-            cursor.execute('''
+            cursor.execute(f'''
                 SELECT 
                     a.game_name,
                     a.attack,
@@ -476,18 +447,70 @@ class Database:
                     a.character,
                     u.username,
                     u.first_name,
-                    u.user_id
+                    u.user_id,
+                    a.last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran' as tehran_time
                 FROM accounts a
                 JOIN users u ON a.user_id = u.user_id
-                WHERE a.last_updated = %s 
-                    AND a.is_active = TRUE
-                ORDER BY a.created_at DESC
-            ''', (date,))
+                WHERE a.is_active = TRUE
+                    AND DATE(a.last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') = 
+                        DATE(NOW() AT TIME ZONE 'Asia/Tehran') - INTERVAL '{days_ago} days'
+                ORDER BY a.last_updated DESC
+            ''')
         
             return cursor.fetchall()
         except Exception as e:
-            logger.error(f"Error getting accounts for date {date}: {e}")
+            logger.error(f"Error getting accounts for {days_ago} days ago: {e}")
             return []
+    
+    def get_update_stats(self):
+        """Get update statistics for today, yesterday, and 2 days ago با زمان تهران"""
+        cursor = self.conn.cursor()
+        try:
+            stats = {}
+            
+            # امروز
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM accounts 
+                WHERE is_active = TRUE 
+                    AND DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') = 
+                        DATE(NOW() AT TIME ZONE 'Asia/Tehran')
+            ''')
+            stats['today'] = cursor.fetchone()['count'] or 0
+            
+            # دیروز
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM accounts 
+                WHERE is_active = TRUE 
+                    AND DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') = 
+                        DATE(NOW() AT TIME ZONE 'Asia/Tehran') - INTERVAL '1 day'
+            ''')
+            stats['yesterday'] = cursor.fetchone()['count'] or 0
+            
+            # دو روز پیش
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM accounts 
+                WHERE is_active = TRUE 
+                    AND DATE(last_updated AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Tehran') = 
+                        DATE(NOW() AT TIME ZONE 'Asia/Tehran') - INTERVAL '2 days'
+            ''')
+            stats['two_days_ago'] = cursor.fetchone()['count'] or 0
+            
+            # مجموع بروزرسانی‌های ۷ روز گذشته
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM accounts 
+                WHERE is_active = TRUE 
+                    AND last_updated >= NOW() - INTERVAL '7 days'
+            ''')
+            stats['last_7_days'] = cursor.fetchone()['count'] or 0
+            
+            return stats
+        except Exception as e:
+            logger.error(f"Error getting update stats: {e}")
+            return {'today': 0, 'yesterday': 0, 'two_days_ago': 0, 'last_7_days': 0}
 
 # Create database instance
 try:

@@ -288,8 +288,6 @@ async def show_full_rankings(update: Update, context: ContextTypes.DEFAULT_TYPE)
             avg_attack = sum(r['attack'] for r in rankings) // total_accounts
             avg_defense = sum(r['defense'] for r in rankings) // total_accounts
             text += f"📊 **آمار کلی:**\n"
-            text += f"• میانگین اتک: {format_num(avg_attack)}\n"
-            text += f"• میانگین دفاع: {format_num(avg_defense)}\n"
             text += f"• بالاترین رتبه: {rankings[0]['game_name']}\n"
             if total_accounts > 1:
                 text += f"• پایین‌ترین رتبه: {rankings[-1]['game_name']}"
@@ -1222,8 +1220,6 @@ async def admin_show_updates(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 
                 text += f"   🎮 {acc['game_name']} {character_icon}\n"
                 text += f"   ⚔️ {format_num(acc['attack'])} | 🛡️ {format_num(acc['defense'])}\n"
-                if time_str:
-                    text += f"   🕐 ساعت: {time_str}\n"
             
             text += "\n"
     

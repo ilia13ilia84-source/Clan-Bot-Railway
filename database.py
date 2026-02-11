@@ -23,183 +23,185 @@ class Database:
         self._init_database()
     
     def connect(self):
-        """برقراری اتصال به دیتابیس با Public URL مستقیم"""
+        """اتصال به دیتابیس بدون تغییر در ساختار"""
         
-        # دریافت DATABASE_URL از محیط
         DATABASE_URL = os.environ.get("DATABASE_URL")
         
         if not DATABASE_URL:
-            logger.error("❌ DATABASE_URL not found in environment variables")
-            logger.error("💡 Available variables:")
-            for key in os.environ:
-                if 'DATABASE' in key or 'POSTGRES' in key or 'RAILWAY' in key:
-                    logger.error(f"   {key}")
+            logger.error("❌ DATABASE_URL not found!")
             raise ValueError("DATABASE_URL is required")
         
-        logger.info(f"🔗 Using DATABASE_URL: {DATABASE_URL[:60]}...")
-        
-        # ========== تبدیل internal به public ==========
-        if 'postgres.railway.internal' in DATABASE_URL:
-            DATABASE_URL = DATABASE_URL.replace('postgres.railway.internal', 'viaduct.proxy.rlwy.net')
-            logger.info("🔄 Converted internal URL to public URL")
-        
-        logger.info(f"🔗 Modified URL: {DATABASE_URL[:60]}...")
+        logger.info(f"🔗 Connecting to Railway PostgreSQL...")
         
         import psycopg2
         from psycopg2.extras import RealDictCursor
         
-        # تلاش برای اتصال با چندین بار تلاش
-        max_retries = 10
-        retry_count = 0
-        last_error = None
+        # تلاش برای اتصال با تنظیمات مختلف
+        strategies = [
+            self._connect_internal,      # اول internal
+            self._connect_public,        # بعد public
+            self._connect_no_ssl,        # بدون SSL
+            self._connect_with_retry     # نهایتاً با retry
+        ]
         
-        while retry_count < max_retries:
+        for strategy in strategies:
             try:
-                # Parse URL
-                result = urlparse(DATABASE_URL)
-                
-                # تنظیمات اتصال
-                database = result.path[1:] if result.path else 'railway'
-                user = result.username or 'postgres'
-                password = result.password or ''
-                host = result.hostname or 'localhost'
-                port = result.port or 5432
-                
-                logger.info(f"📡 Attempt {retry_count + 1}/{max_retries}: Connecting to {host}:{port}")
-                
-                # ایجاد اتصال
-                self.conn = psycopg2.connect(
-                    database=database,
-                    user=user,
-                    password=password,
-                    host=host,
-                    port=port,
-                    cursor_factory=RealDictCursor,
-                    sslmode="require",
-                    connect_timeout=30,
-                    keepalives_idle=30,
-                    keepalives_interval=10,
-                    keepalives_count=5,
-                    options="-c statement_timeout=30000"
-                )
-                
-                logger.info("✅ PostgreSQL connection established successfully!")
-                return
-                
+                strategy(DATABASE_URL)
+                if self.conn:
+                    logger.info(f"✅ Connected using {strategy.__name__}")
+                    return
             except Exception as e:
-                retry_count += 1
-                last_error = e
-                logger.error(f"❌ Attempt {retry_count} failed: {e}")
-                
-                if retry_count < max_retries:
-                    wait_time = retry_count * 2
-                    logger.info(f"⏳ Waiting {wait_time} seconds before next attempt...")
-                    time.sleep(wait_time)
+                logger.warning(f"⚠️ {strategy.__name__} failed: {e}")
+                continue
+        
+        raise Exception("❌ All connection strategies failed!")
+    
+    def _connect_internal(self, url):
+        """اتصال با internal URL"""
+        result = urlparse(url)
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        
+        self.conn = psycopg2.connect(
+            database=result.path[1:],
+            user=result.username,
+            password=result.password,
+            host=result.hostname,
+            port=result.port or 5432,
+            cursor_factory=RealDictCursor,
+            connect_timeout=10,
+            sslmode="disable"
+        )
+    
+    def _connect_public(self, url):
+        """اتصال با public URL"""
+        if 'railway.internal' in url:
+            url = url.replace('postgres.railway.internal', 'viaduct.proxy.rlwy.net')
+        
+        result = urlparse(url)
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        
+        self.conn = psycopg2.connect(
+            database=result.path[1:],
+            user=result.username,
+            password=result.password,
+            host=result.hostname,
+            port=result.port or 5432,
+            cursor_factory=RealDictCursor,
+            connect_timeout=10,
+            sslmode="require"
+        )
+    
+    def _connect_no_ssl(self, url):
+        """اتصال بدون SSL"""
+        result = urlparse(url)
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        
+        self.conn = psycopg2.connect(
+            database=result.path[1:],
+            user=result.username,
+            password=result.password,
+            host=result.hostname,
+            port=result.port or 5432,
+            cursor_factory=RealDictCursor,
+            connect_timeout=10,
+            sslmode="disable"
+        )
+    
+    def _connect_with_retry(self, url):
+        """اتصال با تلاش مجدد"""
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                self._connect_internal(url)
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)
                 else:
-                    logger.error(f"💥 All {max_retries} attempts failed")
-                    raise last_error
+                    raise
     
     def ensure_connection(self):
         """بررسی و برقراری مجدد اتصال"""
         try:
-            # اگر کانکشن None است یا بسته شده
-            if self.conn is None:
-                logger.warning("⚠️ Connection is None, reconnecting...")
+            if not self.conn or self.conn.closed:
+                logger.warning("⚠️ Connection lost, reconnecting...")
                 self.connect()
-                return
-            
-            # تست کانکشن با یک query ساده
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT 1")
-            cursor.close()
-            
+            else:
+                # تست اتصال
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT 1")
+                cursor.close()
         except Exception as e:
-            logger.error(f"⚠️ Connection error detected: {e}")
-            logger.info("🔄 Attempting to reconnect...")
-            
-            try:
-                # بستن کانکشن قدیمی
-                if self.conn:
-                    try:
-                        self.conn.close()
-                    except:
-                        pass
-                    self.conn = None
-                
-                # اتصال مجدد
-                self.connect()
-                logger.info("✅ Reconnected successfully!")
-                
-            except Exception as reconnect_error:
-                logger.error(f"❌ Failed to reconnect: {reconnect_error}")
-                raise
+            logger.error(f"⚠️ Connection error: {e}")
+            self.connect()
     
     def _init_database(self):
-        """Create tables if they don't exist"""
+        """ساخت جداول اگر وجود نداشته باشند"""
         self.ensure_connection()
         cursor = self.conn.cursor()
         
         try:
-            logger.info("🛠️ Creating database tables...")
+            logger.info("🛠️ Checking database tables...")
             
-            # Create users table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    username TEXT,
-                    first_name TEXT,
-                    is_admin BOOLEAN DEFAULT FALSE,
-                    join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+            # بررسی وجود جداول
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'users'
+                );
+            """)
+            users_exists = cursor.fetchone()['exists']
             
-            # Create accounts table with all fields
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS accounts (
-                    id SERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    game_name TEXT NOT NULL,
-                    attack INTEGER DEFAULT 0,
-                    defense INTEGER DEFAULT 0,
-                    character TEXT DEFAULT 'none',
-                    is_active BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'accounts'
+                );
+            """)
+            accounts_exists = cursor.fetchone()['exists']
             
-            # Create indexes for better performance
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_accounts_user_id 
-                ON accounts(user_id)
-            ''')
+            if not users_exists:
+                logger.info("📝 Creating users table...")
+                cursor.execute('''
+                    CREATE TABLE users (
+                        user_id BIGINT PRIMARY KEY,
+                        username TEXT,
+                        first_name TEXT,
+                        is_admin BOOLEAN DEFAULT FALSE,
+                        join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
             
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_accounts_active 
-                ON accounts(is_active)
-            ''')
-            
-            cursor.execute('''
-                CREATE INDEX IF NOT EXISTS idx_accounts_last_updated 
-                ON accounts(last_updated)
-            ''')
+            if not accounts_exists:
+                logger.info("📝 Creating accounts table...")
+                cursor.execute('''
+                    CREATE TABLE accounts (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT,
+                        game_name TEXT NOT NULL,
+                        attack INTEGER DEFAULT 0,
+                        defense INTEGER DEFAULT 0,
+                        character TEXT DEFAULT 'none',
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                # ساخت ایندکس
+                cursor.execute('CREATE INDEX idx_accounts_user_id ON accounts(user_id)')
+                cursor.execute('CREATE INDEX idx_accounts_active ON accounts(is_active)')
+                cursor.execute('CREATE INDEX idx_accounts_last_updated ON accounts(last_updated)')
             
             self.conn.commit()
-            logger.info("✅ Database tables created/verified successfully")
-            
-            # Get counts
-            cursor.execute("SELECT COUNT(*) FROM users")
-            users_count = cursor.fetchone()['count'] or 0
-            
-            cursor.execute("SELECT COUNT(*) FROM accounts")
-            accounts_count = cursor.fetchone()['count'] or 0
-            
-            logger.info(f"📊 Current data: {users_count} users, {accounts_count} accounts")
+            logger.info("✅ Database tables are ready")
             
         except Exception as e:
-            logger.error(f"❌ Error creating tables: {e}")
+            logger.error(f"❌ Error checking tables: {e}")
             self.conn.rollback()
-            raise
     
     @with_connection
     def add_user(self, user_id, username, first_name):
@@ -213,9 +215,7 @@ class Database:
                 SET username = EXCLUDED.username,
                     first_name = EXCLUDED.first_name
             ''', (user_id, username, first_name))
-            
             self.conn.commit()
-            logger.info(f"✅ User {user_id} added/updated")
             return True
         except Exception as e:
             logger.error(f"❌ Error adding user {user_id}: {e}")
@@ -229,10 +229,7 @@ class Database:
             cursor.execute('''
                 UPDATE users SET is_admin = %s WHERE user_id = %s
             ''', (is_admin, user_id))
-            
             self.conn.commit()
-            status = "admin" if is_admin else "not admin"
-            logger.info(f"✅ User {user_id} set as {status}")
             return True
         except Exception as e:
             logger.error(f"❌ Error setting admin for {user_id}: {e}")
@@ -260,10 +257,8 @@ class Database:
                 VALUES (%s, %s, %s, %s)
                 RETURNING id
             ''', (user_id, game_name, attack, defense))
-            
             result = cursor.fetchone()
             self.conn.commit()
-            logger.info(f"✅ Account added for user {user_id}: {game_name}")
             return result['id'] if result else None
         except Exception as e:
             logger.error(f"❌ Error adding account for {user_id}: {e}")
@@ -280,7 +275,6 @@ class Database:
                 WHERE user_id = %s AND is_active = TRUE
                 ORDER BY created_at DESC
             ''', (user_id,))
-            
             return cursor.fetchall()
         except Exception as e:
             logger.error(f"❌ Error getting accounts for {user_id}: {e}")
@@ -296,7 +290,6 @@ class Database:
                 FROM accounts 
                 WHERE user_id = %s AND is_active = TRUE
             ''', (user_id,))
-            
             result = cursor.fetchone()
             return result['count'] if result else 0
         except Exception as e:
@@ -327,7 +320,6 @@ class Database:
                 updates.append("character = %s")
                 params.append(character)
             
-            # Add last_updated timestamp
             updates.append("last_updated = CURRENT_TIMESTAMP")
             
             if not updates:
@@ -338,7 +330,6 @@ class Database:
             
             cursor.execute(query, params)
             self.conn.commit()
-            logger.info(f"✅ Account {account_id} updated")
             return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"❌ Error updating account {account_id}: {e}")
@@ -365,9 +356,7 @@ class Database:
                 SET is_active = FALSE 
                 WHERE id = %s
             ''', (account_id,))
-            
             self.conn.commit()
-            logger.info(f"✅ Account {account_id} deleted (soft)")
             return True
         except Exception as e:
             logger.error(f"❌ Error deleting account {account_id}: {e}")
@@ -413,8 +402,7 @@ class Database:
                     a.character,
                     u.username,
                     u.first_name,
-                    u.user_id,
-                    (a.attack + a.defense) as total
+                    u.user_id
                 FROM accounts a
                 JOIN users u ON a.user_id = u.user_id
                 WHERE a.is_active = TRUE
@@ -444,8 +432,7 @@ class Database:
                     'character': row['character'],
                     'character_icon': character_icon,
                     'user_display': user_display,
-                    'user_id': row['user_id'],
-                    'total': row['total']
+                    'user_id': row['user_id']
                 })
             
             return rankings
@@ -455,7 +442,7 @@ class Database:
     
     @with_connection
     def get_full_rankings(self):
-        """Get all rankings (برای همه) - بدون محدودیت"""
+        """Get all rankings - بدون محدودیت"""
         cursor = self.conn.cursor()
         try:
             cursor.execute('''
@@ -497,8 +484,7 @@ class Database:
                     'character': row['character'],
                     'character_icon': character_icon,
                     'user_display': user_display,
-                    'user_id': row['user_id'],
-                    'total': row['total']
+                    'user_id': row['user_id']
                 })
                 rank += 1
             
@@ -524,7 +510,6 @@ class Database:
                 GROUP BY u.user_id, u.username, u.first_name, u.is_admin
                 ORDER BY u.user_id
             ''')
-            
             return cursor.fetchall()
         except Exception as e:
             logger.error(f"❌ Error getting all users: {e}")
@@ -532,7 +517,7 @@ class Database:
     
     @with_connection
     def get_update_history(self, days=7):
-        """Get accounts update history با زمان ایران"""
+        """Get accounts update history"""
         cursor = self.conn.cursor()
         try:
             cursor.execute(f'''
@@ -545,7 +530,6 @@ class Database:
                 GROUP BY DATE(last_updated + INTERVAL '3:30' HOUR TO MINUTE)
                 ORDER BY date DESC
             ''')
-            
             return cursor.fetchall()
         except Exception as e:
             logger.error(f"❌ Error getting update history: {e}")
@@ -553,7 +537,7 @@ class Database:
     
     @with_connection
     def get_accounts_updated_on_date(self, days_ago=0):
-        """Get accounts updated on specific date با زمان ایران"""
+        """Get accounts updated on specific date"""
         cursor = self.conn.cursor()
         try:
             cursor.execute(f'''
@@ -564,8 +548,7 @@ class Database:
                     a.character,
                     u.username,
                     u.first_name,
-                    u.user_id,
-                    a.last_updated + INTERVAL '3:30' HOUR TO MINUTE as tehran_time
+                    u.user_id
                 FROM accounts a
                 JOIN users u ON a.user_id = u.user_id
                 WHERE a.is_active = TRUE
@@ -573,20 +556,18 @@ class Database:
                         CURRENT_DATE - INTERVAL '{days_ago} days'
                 ORDER BY a.last_updated DESC
             ''')
-        
             return cursor.fetchall()
         except Exception as e:
-            logger.error(f"❌ Error getting accounts for {days_ago} days ago: {e}")
+            logger.error(f"❌ Error getting accounts: {e}")
             return []
     
     @with_connection
     def get_update_stats(self):
-        """Get update statistics for today, yesterday, and 2 days ago با زمان ایران"""
+        """Get update statistics"""
         cursor = self.conn.cursor()
         try:
             stats = {}
             
-            # امروز ایران (از 00:01 به بعد)
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM accounts 
@@ -595,7 +576,6 @@ class Database:
             ''')
             stats['today'] = cursor.fetchone()['count'] or 0
             
-            # دیروز ایران
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM accounts 
@@ -604,7 +584,6 @@ class Database:
             ''')
             stats['yesterday'] = cursor.fetchone()['count'] or 0
             
-            # دو روز پیش ایران
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM accounts 
@@ -613,7 +592,6 @@ class Database:
             ''')
             stats['two_days_ago'] = cursor.fetchone()['count'] or 0
             
-            # مجموع بروزرسانی‌های ۷ روز گذشته
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM accounts 
@@ -622,7 +600,6 @@ class Database:
             ''')
             stats['last_7_days'] = cursor.fetchone()['count'] or 0
             
-            # آمار کل بروزرسانی‌ها
             cursor.execute('''
                 SELECT COUNT(*) as count
                 FROM accounts 
